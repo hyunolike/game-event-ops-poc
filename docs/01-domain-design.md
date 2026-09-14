@@ -158,7 +158,7 @@ erDiagram
         nvarchar CouponCode "비정규화(조회 성능)"
         datetime2 RequestedAt "API 수신 시각"
         datetime2 PersistedAt "DB 적재 시각 — 지연 관측용"
-        int      LatencyMs
+        int      PersistenceLagMs "PersistedAt - RequestedAt, 집계용"
         nvarchar IssuePath "redis-lua | db-lock (4단계 비교군 구분)"
         nvarchar FailureDetail
     }
@@ -288,7 +288,7 @@ public class IssuanceLog
     public string? CouponCode { get; private set; }            // 비정규화: 이력 조회 시 JOIN 제거
     public DateTime RequestedAt { get; private set; }          // API 수신 시각
     public DateTime PersistedAt { get; private set; }          // DB 적재 시각 → lag 관측
-    public int LatencyMs { get; private set; }
+    public int PersistenceLagMs { get; private set; }         // PersistedAt - RequestedAt
     public string IssuePath { get; private set; } = default!;  // "redis-lua" | "db-lock"
     public string? FailureDetail { get; private set; }
 }
