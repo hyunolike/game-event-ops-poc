@@ -2,7 +2,7 @@
 
 별도 SPA 없이 Razor Pages 로 구현한 백오피스. CSS 프레임워크 없이 순수 CSS(156줄).
 
-![이벤트 목록](images/admin-events.png)
+![이벤트 목록](images/02-events.png)
 
 ---
 
@@ -21,7 +21,7 @@
 
 ## 실시간 소진 현황 — 폴링을 택한 이유
 
-![이벤트 상세](images/admin-event-details.png)
+![이벤트 상세](images/04-event-detail.png)
 
 `GET /api/events/{id}/status` 를 3초마다 호출한다. WebSocket 을 쓰지 않았다.
 
@@ -71,7 +71,7 @@
 
 ## 모든 변경은 운영 로그에 남는다
 
-![운영 로그](images/admin-operation-logs.png)
+![운영 로그](images/08-operation-logs.png)
 
 `IAuditLogger` 가 변경 전/후 스냅샷과 **바뀐 필드 이름**을 기록한다.
 

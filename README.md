@@ -1,122 +1,195 @@
 # coupon-ops-tool
 
-**선착순 쿠폰 발급 API와 운영툴 PoC.**
-동시 요청이 아무리 몰려도 발급 수가 설정 수량을 넘지 않는다 — 그것을 실행 가능한 테스트와 부하 측정으로 증명한다.
+**A first-come-first-served coupon issuance API and its back-office — proving that no matter how many
+requests arrive at once, not one coupon is issued beyond the configured quantity.**
 
-.NET 8 · MSSQL · Redis · Docker · GitHub Actions · k6
+[![CI](https://github.com/hyunolike/game-event-ops-poc/actions/workflows/ci.yml/badge.svg?branch=claude%2Fcoupon-ops-tool-poc-gla5du)](https://github.com/hyunolike/game-event-ops-poc/actions/workflows/ci.yml)
+![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4)
+![Tests](https://img.shields.io/badge/integration%20tests-46%20passing-1a7f4b)
+![Coverage](https://img.shields.io/badge/line%20coverage-80.6%25-1a7f4b)
 
----
-
-## 아키텍처
-
-```mermaid
-flowchart LR
-    subgraph clients [ ]
-        Player["게임 클라이언트"]
-        Admin["운영자"]
-    end
-
-    Proxy["nginx<br/>blue-green 전환"]
-
-    subgraph app ["CouponOps.Web (.NET 8)"]
-        API["Minimal API<br/>POST /coupons/issue"]
-        Pages["Razor Pages<br/>운영툴"]
-        Worker["적재 워커<br/>BackgroundService"]
-    end
-
-    Redis[("Redis<br/><b>재고의 원천</b>")]
-    DB[("MSSQL<br/>영속화·이력")]
-
-    Player --> Proxy --> API
-    Admin --> Proxy --> Pages
-
-    API -- "Lua 원자 차감" --> Redis
-    Redis -- "Stream (아웃박스)" --> Worker
-    Worker -- "배치 INSERT" --> DB
-
-    Pages -- "현황 조회" --> Redis
-    Pages -- "이력·감사 로그" --> DB
-
-    style Redis fill:#ffe8e8,stroke:#c0342b
-    style DB fill:#e8f0ff,stroke:#1f5fd0
-```
-
-**Redis 가 재고의 원천(source of truth)이고, DB 는 비동기로 따라온다.**
-유저가 기다리는 시간과 DB 가 감당하는 시간을 분리한 것이 이 설계의 핵심이다.
+> 한국어 문서는 [README.ko.md](README.ko.md) 를 보세요. 상세 설계 문서는 모두 한국어로 작성돼 있습니다.
 
 ---
 
-## 해결한 문제 — 선착순 발급의 동시성
+## The problem
 
-재고 확인과 차감을 따로 하면(`GET` → 판단 → `DECR`) 두 명령 사이에 다른 요청이 끼어든다.
-`DECR` 만 쓰면 원자적이지만 재고가 음수로 내려가 **초과 발급**이 된다.
+A game announces a coupon event. At the moment it opens, tens of thousands of players hit
+*Claim* within the same second.
 
-**Lua 스크립트 안에서 재고·유저 한도·멱등 키를 한 번에 처리한다.**
-Redis 에서 스크립트는 단일 명령처럼 원자적으로 실행되므로, 그 안에서는 "확인 후 차감" 이 안전하다.
+Read the remaining stock, decide, then decrement — and another request slips in between the two
+steps. Two players walk away with the same coupon. Use an atomic `DECR` alone and the counter goes
+negative: you have promised more coupons than exist.
 
-```
-1. 멱등 검사       GET  {evt:N}:req:<rid>      → 있으면 최초 결과 재생
-2. 메타 로드       HMGET {evt:N}:meta
-3. 거부 검증(읽기)  중단 → 기간 → 유저 한도
-4. 코드 확보       LPOP {evt:N}:pool           ← 재고 판정과 코드 배정을 겸한다
-5. 발급 확정(쓰기)  HINCRBY users / SET req / XADD issued
-```
+Neither failure is recoverable. **You cannot take a coupon back once it is in a player's hands.**
 
-순서를 지배하는 원칙이 둘 있다.
-
-- **멱등 검사가 가장 먼저다.** 기간 검사를 먼저 두면 "이미 발급받은 유저가 종료 후 재시도" 가
-  `OutOfPeriod` 로 응답되어 최초 결과와 달라진다 — 멱등성이 깨진다.
-- **읽기 검증을 전부 끝낸 뒤에야 쓰기를 시작한다.** Redis 는 Lua 실행 중 오류가 나도
-  **앞서 실행된 명령을 되돌리지 않는다.** 검증과 쓰기를 섞으면 뒤쪽에서 거부될 때
-  앞에서 깎은 재고가 그대로 증발한다.
-
-예외는 `LPOP` 하나다. 쓰기지만 실패 시(nil) 아무것도 바꾸지 않아 되돌릴 것이 없고,
-**재고 판정과 코드 배정을 겸하므로** "재고는 깎였는데 코드가 없다" 는 상태가 구조적으로 생기지 않는다.
-
-→ 전문: [`docs/02-issue-api.md`](docs/02-issue-api.md) · [`issue_coupon.lua`](src/CouponOps.Web/Infrastructure/Redis/Scripts/issue_coupon.lua)
+The usual answer is a database lock. It is correct — and this project measures exactly what it costs.
 
 ---
 
-## 성능 — Redis Lua vs DB 비관적 락
+## How it is solved
 
-같은 규칙·같은 이력 스키마로 **세 경로를 같은 조건에서** 측정했다.
-셋 다 **초과 발급 0건** 이다 — 정확성을 포기해서 얻은 속도가 아니다.
+Stock decrement, per-user limit and idempotency all happen **inside one Lua script**. Redis runs a
+script as a single atomic unit, so *check-then-act* is safe in there.
 
-| 경로 | VU | 처리량 | p50 | p95 | p99 |
+```
+1. Idempotency check   GET   {evt:N}:req:<rid>     → replay the original outcome if present
+2. Load metadata       HMGET {evt:N}:meta
+3. Rejection checks    suspended → period → per-user limit      (reads only)
+4. Acquire a code      LPOP  {evt:N}:pool          ← this both tests stock and assigns the code
+5. Commit the issue    HINCRBY users / SET req / XADD issued     (writes only)
+```
+
+Two principles drive that ordering.
+
+**The idempotency check must come first.** Put the period check ahead of it and a player who already
+holds a coupon gets `OutOfPeriod` when they retry after the event ends — a different answer from the
+first call. Idempotency is broken.
+
+**Every read-side check completes before the first write.** Redis does **not roll back commands that
+already ran** when a Lua script fails midway. There is no transaction to unwind. Interleave checks
+and writes and a later rejection leaves the stock you already decremented simply gone.
+
+`LPOP` is the one exception. It writes, but on failure (`nil`) it changes nothing, so there is
+nothing to undo — and because it **both tests stock and assigns a code**, the state
+*"stock was taken but no code exists"* cannot arise at all.
+
+Full reasoning: [docs/02-issue-api.md](docs/02-issue-api.md) ·
+[issue_coupon.lua](src/CouponOps.Web/Infrastructure/Redis/Scripts/issue_coupon.lua)
+
+---
+
+## The numbers
+
+Three issuance paths, same rules, same history schema, same conditions.
+**All three issue exactly the configured quantity — the speed is not bought with correctness.**
+
+| Path | VU | Throughput | p50 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
 | **Redis Lua** | 200 | **8,912/s** | 14 ms | 37 ms | **64 ms** |
-| DB 이벤트행 락 | 200 | 223/s | 779 ms | 1,008 ms | 1,552 ms |
-| DB READPAST | 200 | 395/s | 328 ms | 860 ms | 2,246 ms |
+| DB row lock on event | 200 | 223/s | 779 ms | 1,008 ms | 1,552 ms |
+| DB `READPAST` | 200 | 395/s | 328 ms | 860 ms | 2,246 ms |
 | **Redis Lua** | 3,000 | **8,495/s** | 145 ms | 391 ms | **551 ms** |
-| DB 이벤트행 락 | 3,000 | 202/s | 12,069 ms | 15,156 ms | 15,804 ms |
-| DB READPAST | 3,000 | 322/s | 6,605 ms | 10,914 ms | 14,596 ms |
+| DB row lock on event | 3,000 | 202/s | 12,069 ms | 15,156 ms | 15,804 ms |
+| DB `READPAST` | 3,000 | 322/s | 6,605 ms | 10,914 ms | 14,596 ms |
 
-**처리량 22~44배, p99 응답시간 1/25~1/29.**
+**22–44× the throughput, 1/25–1/29 the p99 latency.**
 
-기울기가 핵심이다. **DB 는 VU 를 15배 늘려도 처리량이 그대로고**(223 → 202) 대기 시간만 15배 늘어난다.
-그것이 직렬화의 정의다 — 더 많이 몰려와도 초당 처리량은 변하지 않고 줄만 길어진다.
+The slope matters more than any single number. **Raise the load 15× and the DB paths move the same
+amount of work** (223 → 202 req/s); only the waiting grows. That is what serialization means — more
+arrivals do not increase throughput, they lengthen the queue. Redis holds its rate.
 
-### 소진 정확성 (재고 10,000 / VU 300)
+### Sell-out accuracy (stock 10,000 · 300 VU)
 
-| 경로 | 발급 성공 | 초과 발급 |
+| Path | Issued | Over-issued |
 |---|---:|---:|
 | Redis Lua | **10,000** | 0 |
-| DB 이벤트행 락 | **10,000** | 0 |
-| DB READPAST | **10,000** | 0 |
+| DB row lock on event | **10,000** | 0 |
+| DB `READPAST` | **10,000** | 0 |
 
-Redis 경로는 총 **251,957건**의 요청을 처리하면서 정확히 10,000건만 발급했다.
+The Redis path served **251,957 requests** during that run and issued exactly 10,000 of them.
 
-> **비교군을 제대로 만드는 데 시간을 썼다.** 처음 구현한 DB 경로는 200 VU 에서 **5.6 req/s**,
-> 요청의 94%가 타임아웃이었다. 실행 계획을 떠보니 유저 한도 조회가 **인덱스 스캔**이었고,
-> 그 질의에 걸린 `UPDLOCK, HOLDLOCK` 때문에 **모든 트랜잭션이 25만 행에 범위 잠금**을 걸고 있었다.
-> 필터드 인덱스 하나를 추가하자 **5.6 → 223 req/s (40배)**.
-> 그 상태로 리포트했다면 "Redis 가 1,500배 빠르다" 는 거짓 결론이 나왔을 것이다.
+> **Building a fair comparison took real work.** The first DB implementation managed **5.6 req/s**
+> with 94% of requests timing out. The query plan showed the per-user-limit lookup doing an
+> **index scan**, and the `UPDLOCK, HOLDLOCK` on it meant **every transaction range-locked 250,000
+> rows**. One filtered index later: **5.6 → 223 req/s (40×)**.
+> Shipping the first number would have produced a nonsense headline — *"Redis is 1,500× faster"*.
 
-→ 전문·측정 환경의 한계: [`docs/load-test.md`](docs/load-test.md)
+Method, environment and its limits: [docs/load-test.md](docs/load-test.md)
 
 ---
 
-## 실행
+## The back-office
+
+Built with Razor Pages — no separate SPA, no CSS framework (157 lines of plain CSS).
+The UI is Korean because the operators are.
+
+### 1. Sign in — read-only and editor roles
+
+![Sign in](docs/images/01-login.png)
+
+Cookie auth, 8-hour lifetime, `HttpOnly` + `SameSite=Strict`.
+Razor Pages defaults to *authentication required* (`AuthorizeFolder("/")`), so forgetting to guard a
+new page does not leave it open.
+
+### 2. Event list — filter by state, see consumption at a glance
+
+![Event list](docs/images/02-events.png)
+
+The consumption bar reads from **Redis**, the source of truth for stock — not from the database,
+which trails behind. State filtering is translated to SQL (`CouponEvent.IsStatus`) so the list does
+not read every row to filter in memory.
+
+Note that `예정` (scheduled), `진행중` (active) and `종료` (ended) are **never stored**. They are
+functions of the clock, derived on read. Only the operator-driven `중단` (suspended) is persisted —
+store the rest and a late scheduler leaves a lie in the database.
+
+### 3. Create an event — validated, then warmed into Redis
+
+![Create event](docs/images/03-event-create.png)
+
+Saving pre-generates the coupon codes, bulk-loads them with `SqlBulkCopy` and warms the Redis pool.
+When the redirect lands, the event is **already issuable**.
+
+### 4. Event detail — live consumption, polled
+
+![Event detail](docs/images/04-event-detail.png)
+
+`GET /api/events/{id}/status` every 3 seconds. **No WebSocket**: the audience is a handful of
+operators, three seconds changes no decision, and a socket brings connection management, reconnects
+and a scale-out backplane with it. Polling pauses while the tab is hidden — ops consoles get left
+open.
+
+`DB 적재 대기` (pending persistence) is the gap between Redis-side issues and rows in the history
+table. Showing it stops the *"it was issued but I can't see it"* question before it is asked, and it
+is honest about the asynchronous write path.
+
+### 5. Force-stop — a dangerous action, gated three ways
+
+![Suspended event](docs/images/05-event-suspended.png)
+
+Stopping an event cannot be undone — coupons already issued are not recalled. So:
+
+1. **Type the event code.** A `confirm()` dialog does not stop you from force-stopping the event in
+   the other tab. Naming the target does.
+2. **A reason is mandatory.** A stop with no reason explains nothing during the post-mortem.
+3. A browser `confirm()` for mis-clicks.
+
+(1) and (2) are **validated server-side**. Client-side checks are not a defence.
+
+### 6. Issuance history — successes *and* failures
+
+![Issuance history](docs/images/06-issuances.png)
+
+Every attempt is recorded with its outcome: issued, sold out, out of period, per-user limit
+exceeded, duplicate request. Filter by event, user ID, period and result, with paging.
+
+![Filtered by sold out](docs/images/07-issuances-filtered.png)
+
+User lookup is an exact match, not `LIKE '%…%'` — this is the largest table in the system and the
+`(UserId, RequestedAt)` index only helps if the predicate can use it. Support tickets come with an
+exact user ID anyway.
+
+### 7. Operation log — before and after, for every change
+
+![Operation log](docs/images/08-operation-logs.png)
+
+`"Suspended": false` → `"Suspended": true`, with the actor, their IP, the reason and the list of
+changed fields. **`SaveChanges` is the caller's job**, so the change and its audit record commit in
+the same transaction — there is no window where something changed without a record.
+
+Sign-ins are audited too. *Who came in, and when* is the first question of any investigation.
+
+### 8. Read-only accounts see no dangerous actions
+
+![Read-only view](docs/images/09-viewer-readonly.png)
+
+And hiding the button is not the defence — the handler re-checks the role, and an integration test
+POSTs the form as a viewer to prove the state does not change.
+
+---
+
+## Run it
 
 ```bash
 docker compose up -d --wait
@@ -124,11 +197,11 @@ docker compose up -d --wait
 
 | | |
 |---|---|
-| 운영툴 · API | http://localhost:8080 |
-| 계정 | `admin` / `admin1234` (편집), `viewer` / `admin1234` (읽기전용) |
-| 헬스체크 | http://localhost:8080/health/ready |
+| Back-office · API | http://localhost:8080 |
+| Accounts | `admin` / `admin1234` (editor), `viewer` / `admin1234` (read-only) |
+| Health | http://localhost:8080/health/ready |
 
-발급 호출:
+Issue a coupon:
 
 ```bash
 curl -X POST http://localhost:8080/api/events/1/coupons/issue \
@@ -136,149 +209,177 @@ curl -X POST http://localhost:8080/api/events/1/coupons/issue \
   -d '{"userId":"player-1234"}'
 ```
 
-테스트와 부하 측정:
+Tests, load test, deployment:
 
 ```bash
-dotnet test                                    # 통합 테스트 46건 (Testcontainers)
-bash loadtest/run-comparison.sh /tmp/results   # 3경로 × 3 VU 레벨
-bash deploy/deploy.sh couponops:local          # 무중단 배포 (blue-green)
+dotnet test                                    # 46 integration tests on real MSSQL + Redis
+bash loadtest/run-comparison.sh /tmp/results   # 3 paths × 3 VU levels
+bash deploy/deploy.sh couponops:local          # zero-downtime blue-green deploy
 ```
 
 ---
 
-## 운영툴
+## Architecture
 
-![이벤트 목록](docs/images/admin-events.png)
+```mermaid
+flowchart LR
+    Player["Game client"]
+    Admin["Operator"]
+    Proxy["nginx<br/>blue-green switch"]
 
-이벤트 목록(상태 필터·소진율) · 생성/수정 · 실시간 소진 현황 · 발급 이력 · 운영 로그.
-쿠키 인증에 읽기전용/편집 권한을 구분하고, **모든 변경 액션이 변경 전/후 값과 함께 운영 로그에 남는다.**
+    subgraph app ["CouponOps.Web (.NET 8)"]
+        API["Minimal API<br/>POST /coupons/issue"]
+        Pages["Razor Pages<br/>back-office"]
+        Worker["Persistence worker<br/>BackgroundService"]
+    end
 
-→ [`docs/03-admin-tool.md`](docs/03-admin-tool.md)
+    Redis[("Redis<br/><b>source of truth</b>")]
+    DB[("MSSQL<br/>durability · history")]
+
+    Player --> Proxy --> API
+    Admin --> Proxy --> Pages
+
+    API -- "atomic Lua decrement" --> Redis
+    Redis -- "Stream (outbox)" --> Worker
+    Worker -- "batched INSERT" --> DB
+
+    Pages -- "live status" --> Redis
+    Pages -- "history · audit" --> DB
+
+    style Redis fill:#ffe8e8,stroke:#c0342b
+    style DB fill:#e8f0ff,stroke:#1f5fd0
+```
+
+**Redis owns the stock; the database catches up asynchronously.** The time a player waits and the
+time the database needs are decoupled — measured at **19 ms** to respond and **1.5 s** for the
+database to finish following.
+
+Consumption is at-least-once, so the same entry can arrive twice. A `UNIQUE` constraint on
+`IssuanceLogs.RequestId` plus a pre-filter in the worker keeps duplicates out, and the coupon update
+and the history row commit in one transaction.
 
 ---
 
-## 기술 선택 근거
+## Engineering decisions
 
-### 왜 Redis Lua 인가
+### Why Redis Lua, and what happens when Redis is down
 
-DB 트랜잭션으로도 정확성은 얻을 수 있다(위 표가 그 증거다). 차이는 **구조**다.
+The difference from a DB transaction is structural, not incidental:
 
-| | Redis Lua | DB 트랜잭션 |
+| | Redis Lua | DB transaction |
 |---|---|---|
-| 차감 단위 | 인메모리 정수 연산 1회 | 트랜잭션 시작 → 잠금 → I/O → 커밋 |
-| 직렬화 범위 | 스크립트 단위 (수 µs) | 잠금 보유 시간 전체 (수 ms) |
-| 커넥션 | 발급 중 DB 커넥션 **0개** | 요청당 1개를 트랜잭션 내내 점유 |
-| 응답까지 필요한 작업 | 재고 차감만 | 재고 차감 + 이력 INSERT |
+| Unit of decrement | one in-memory integer op | begin → lock → I/O → commit |
+| Scope of serialization | per script (microseconds) | the whole lock hold (milliseconds) |
+| Connections | **zero** DB connections while issuing | one held for the entire transaction |
+| Work before responding | decrement only | decrement + history INSERT |
 
-**Redis 장애 시에는 fail-fast 한다 — DB 로 우회하지 않는다.**
-재고의 원천이 둘이 되는 순간 "정확히 N개" 를 보증할 수 없기 때문이다.
-초과 발급은 보상이 어렵지만(이미 유저 손에 코드가 있다) 짧은 발급 거부는 재시도로 회복된다.
-비대칭적인 비용이므로 거부를 택했다.
+**When Redis fails the API fails fast — it does not fall back to the database.** The moment stock has
+two owners, *exactly N* is unprovable: issues made through the DB path while Redis was unreachable
+never reach the Redis counter, and the recovered Redis keeps handing out what it still believes it
+has. Over-issuance cannot be compensated; a brief refusal is recovered by a retry. The costs are
+asymmetric, so refusal wins.
 
-### 왜 Razor Pages 인가
+Startup is treated differently. `AbortOnConnectFail = false` keeps the app from dying because a
+container came up in the wrong order — only failures *during request handling* are fail-fast.
 
-운영툴의 사용자는 **운영자 몇 명**이고, 화면은 목록·폼·상세뿐이다.
+### Why Razor Pages
 
-- 별도 SPA 는 빌드 파이프라인·상태 관리·API 스키마 동기화라는 비용을 달고 온다.
-  얻는 것(클라이언트 라우팅, 풍부한 상호작용)이 이 화면들에는 필요 없다.
-- 서버 렌더링이라 **인증·권한 판단이 한 곳에 모인다.** SPA 였다면 화면 가드와 API 가드를
-  양쪽에 두고 어긋나지 않게 관리해야 한다.
-- 단일 프로젝트라 배포 단위가 하나다.
-- 실시간 갱신은 **3초 폴링**으로 충분하다. WebSocket 은 연결 관리·재연결·스케일아웃 백플레인
-  비용을 달고 오는데, 운영자 몇 명에게 3초 지연은 의사결정에 영향이 없다.
+- A separate SPA brings a build pipeline, client state management and API schema synchronization.
+  Lists, forms and a detail page do not need any of it.
+- Server rendering keeps **authentication and authorization in one place**. An SPA needs a route
+  guard *and* an API guard, kept in agreement.
+- One project, one deployment unit.
 
-### 왜 쿠폰 코드를 사전 생성하는가
+### Why pre-generated coupon codes
 
-발급 시 생성하면 코드와 재고가 별개 자원이 되어 원자성을 따로 보증해야 한다.
-사전 생성하면 `LPOP` 한 번이 둘을 겸한다 — 증명할 것이 하나 줄어든다.
-(발급 시 파생하는 `Derived` 모드도 함께 구현했다. 시퀀스에서 파생하므로 충돌이 원천적으로 없다.)
+Generating on issue makes the code and the stock two separate resources whose atomicity has to be
+proven separately. Pre-generating collapses them into a single `LPOP` — one less thing to prove.
 
-→ [`docs/01-domain-design.md`](docs/01-domain-design.md)
+A `Derived` mode is implemented too: the code is derived from an `INCR` sequence
+(`Base32(HMAC(secret, eventId‖seq))`), so collisions are impossible by construction rather than by
+luck — and the sequence is not exposed, so codes stay unguessable.
+
+More: [docs/01-domain-design.md](docs/01-domain-design.md)
 
 ---
 
 ## CI/CD
 
 ```
-브랜치 푸시 / PR  →  빌드 · 테스트 · 커버리지  →  무중단 배포 · 롤백 시연
-main 머지        →  이미지 빌드 · GHCR 푸시
+branch push / PR  →  build · test · coverage  →  zero-downtime deploy · rollback drill
+merge to main     →  image build · push to GHCR
 ```
 
-**`deploy-smoke` 잡이 매번 무중단 배포와 롤백을 실제로 수행한다.**
-배포하는 동안 프록시로 요청을 계속 보내고, **실패가 한 건이라도 나오면 잡이 실패한다.**
-"무중단" 을 주장하려면 그것을 측정해야 한다.
+**The `deploy-smoke` job performs a real deployment and a real rollback on every run.** Requests are
+sent through the proxy throughout, and **a single failed request fails the job**. Claiming
+"zero downtime" means measuring it.
 
-로컬 실측:
-
-| 시나리오 | 결과 |
+| Scenario | Result |
 |---|---|
-| 정상 배포 (blue → green) | 요청 **471건 · 실패 0건**, 준비까지 3초 |
-| 실패 주입 | 요청 **8,993건 · 실패 0건**, 전환 안 함, 트래픽 유지, 종료 코드 1 |
+| Normal deploy (blue → green) | **471 requests · 0 failed**, ready in 3 s |
+| Injected failure | **8,993 requests · 0 failed**, no switch, traffic held, exit code 1 |
 
-### 파이프라인 실측 (GitHub Actions, ubuntu-latest · 전체 5분 24초)
+### Measured pipeline (GitHub Actions, ubuntu-latest · 5 m 24 s total)
 
-| 잡 · 단계 | 소요 |
+| Job · step | Duration |
 |---|---:|
-| **빌드 · 테스트 · 커버리지** | **2분 08초** |
-| ├ .NET SDK 설치 | 7초 |
-| ├ NuGet 캐시 복원 | 5초 |
-| ├ 복원 | 5초 |
-| ├ 빌드 (Release) | 12초 |
-| ├ **테스트 46건** (Testcontainers 로 실제 MSSQL·Redis 기동) | **1분 28초** |
-| ├ 커버리지 리포트 | 2초 |
-| └ 아티팩트 업로드 | 2초 |
-| **무중단 배포 · 롤백 시연** | **3분 10초** |
-| ├ 이미지 빌드 | 31초 |
-| ├ compose 전체 기동 (`--wait`) | 34초 |
-| ├ 헬스체크 확인 | < 1초 |
-| ├ **무중단 배포** (blue → green) | **15초** |
-| ├ **롤백 경로 확인** (실패 주입 후 전환 포기) | **1분 37초** |
-| └ 정리 | 10초 |
+| **build · test · coverage** | **2 m 08 s** |
+| ├ restore (cached) | 5 s |
+| ├ build (Release) | 12 s |
+| ├ **46 tests** (Testcontainers spins up real MSSQL + Redis) | **1 m 28 s** |
+| └ coverage report + artifacts | 4 s |
+| **zero-downtime deploy · rollback drill** | **3 m 10 s** |
+| ├ image build | 31 s |
+| ├ `docker compose up --wait` | 34 s |
+| ├ **deploy (blue → green)** | **15 s** |
+| └ **rollback drill** (deploy something that never becomes ready) | **1 m 37 s** |
 
-테스트가 전체의 27%를 차지하는데, 그 대부분은 **MSSQL 컨테이너 기동 시간**이다.
-목으로 바꾸면 빨라지지만 그러면 이 프로젝트가 증명하려는 것(실제 잠금·실제 원자성)을
-검증하지 못한다. 그 교환은 하지 않았다.
+Tests are 27% of the pipeline, mostly **MSSQL container startup**. Swapping in mocks would make it
+faster and would stop verifying the one thing this project exists to verify — real locks, real
+atomicity. That trade was not made.
 
-롤백 단계가 1분 37초인 것은 **일부러 준비되지 않는 인스턴스를 배포하고 게이트가
-포기할 때까지 기다리기 때문**이다(readiness 타임아웃 90초).
+> **CI earned its keep.** Three defects that never appeared locally showed up here, two of them the
+> classic *"works on my machine"*: a generated nginx config that had been committed in its
+> post-deploy state, and a config file written by a root container that the non-root deploy script
+> could not overwrite. Details in [docs/cicd.md](docs/cicd.md).
 
-커버리지: **라인 80.6%** (2,254 / 2,795), 브랜치 62.5%.
-
-→ 트레이드오프 정리: [`docs/cicd.md`](docs/cicd.md)
+Trade-offs — Jenkins vs Actions, containers vs direct deployment: [docs/cicd.md](docs/cicd.md)
 
 ---
 
-## 구조
+## Layout
 
 ```
-src/CouponOps.Web/          단일 프로젝트 (Minimal API + Razor Pages)
-├─ Domain/                  엔티티·규칙 (의존성 없음)
-├─ Application/             유스케이스
-├─ Api/                     발급 API · 현황 · 헬스체크
+src/CouponOps.Web/          single project (Minimal API + Razor Pages)
+├─ Domain/                  entities and rules (no dependencies)
+├─ Application/             use cases
+├─ Api/                     issuance API · live status · health
 ├─ Infrastructure/
-│  ├─ Redis/Scripts/        issue_coupon.lua  ← 동시성 제어의 핵심
-│  ├─ Persistence/          EF Core · 마이그레이션
-│  └─ Workers/              비동기 적재 워커
-└─ Pages/                   운영툴
+│  ├─ Redis/Scripts/        issue_coupon.lua   ← the concurrency control
+│  ├─ Persistence/          EF Core · migrations
+│  └─ Workers/              asynchronous persistence worker
+└─ Pages/                   back-office
 
-tests/CouponOps.Tests/      통합 테스트 46건 (Testcontainers, 실제 MSSQL·Redis)
-loadtest/                   k6 시나리오 + 측정 스크립트
-deploy/                     blue-green 배포 스크립트 · nginx
-docs/                       설계·측정·CI/CD·AI 활용 기록
+tests/CouponOps.Tests/      46 integration tests (Testcontainers, real MSSQL + Redis)
+loadtest/                   k6 scenarios and measurement scripts
+deploy/                     blue-green deploy script · nginx
+docs/                       design · measurement · CI/CD · AI usage log
 ```
 
-폴더 경계로 의존 방향을 강제한다. PoC 규모에서 Clean Architecture 4-프로젝트 분할은
-리뷰어가 코드를 따라가는 비용만 늘린다.
+Dependency direction is enforced by folder boundaries. A four-project Clean Architecture split at
+this size only adds to the cost of following the code.
 
 ---
 
-## 문서
+## Documents
+
+All written in Korean.
 
 | | |
 |---|---|
-| [1단계 — 도메인 설계](docs/01-domain-design.md) | ERD, 엔티티, 인덱스 설계 근거 |
-| [2단계 — 발급 API와 동시성](docs/02-issue-api.md) | Lua 순서 근거, fail-fast 판단 |
-| [3단계 — 운영툴](docs/03-admin-tool.md) | 권한 구분, 위험 액션 확인 절차 |
-| [4단계 — 부하 테스트](docs/load-test.md) | 측정 환경의 한계까지 포함한 비교 리포트 |
-| [5단계 — CI/CD](docs/cicd.md) | Jenkins vs Actions, 컨테이너 배포 트레이드오프 |
-| [AI 활용 기록](docs/ai-usage.md) | 무엇을 AI 로 만들었고 어떻게 검증했는가 |
+| [1 — Domain design](docs/01-domain-design.md) | ERD, entities, why each index exists |
+| [2 — Issuance API and concurrency](docs/02-issue-api.md) | Lua ordering, the fail-fast decision |
+| [3 — Back-office](docs/03-admin-tool.md) | role separation, dangerous-action gating |
+| [4 — Load test](docs/load-test.md) | the comparison, including what the setup cannot show |
+| [5 — CI/CD](docs/cicd.md) | Jenkins vs Actions, container deployment trade-offs |
+| [AI usage log](docs/ai-usage.md) | what was AI-generated, and how each defect was caught |
