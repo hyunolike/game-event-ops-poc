@@ -12,6 +12,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.WebEncoders;
 using StackExchange.Redis;
 
+// 컨테이너 HEALTHCHECK 진입점. 이미지에 curl 을 넣지 않기 위해 앱 자신이 프로브가 된다.
+if (args is ["--healthcheck", ..])
+    return await HealthProbe.RunAsync(
+        args.ElementAtOrDefault(1) ?? "http://127.0.0.1:8080/health/live");
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<IssuanceOptions>(
@@ -55,6 +60,7 @@ builder.Services.AddScoped<DbIssueCouponService>();   // 4단계 비교 측정�
 builder.Services.AddScoped<EventAdminService>();
 
 builder.Services.AddHostedService<IssuancePersistenceWorker>();
+builder.Services.AddHostedService<AdminSeedWorker>();
 
 // ── 인증: 운영툴 전용 쿠키 ────────────────────────────────────────────────────
 builder.Services
@@ -95,11 +101,10 @@ app.MapRazorPages();
 app.MapIssueEndpoints();
 app.MapIssueDbEndpoints();
 app.MapEventStatusEndpoints();
-
-await AdminUserSeeder.SeedAsync(app.Services,
-    app.Configuration["Admin:SeedPassword"] ?? "admin1234");
+app.MapHealthEndpoints();
 
 app.Run();
+return 0;
 
 /// <summary>통합 테스트의 WebApplicationFactory 가 진입점을 잡을 수 있도록 공개한다.</summary>
 public partial class Program;

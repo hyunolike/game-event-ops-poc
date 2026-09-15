@@ -28,14 +28,26 @@ fi
 if docker info >/dev/null 2>&1; then
   log "Docker 데몬 이미 실행 중: $(docker info --format '{{.ServerVersion}}')"
 else
-  log "Docker 데몬 기동 중 (storage-driver=vfs)"
+  log "Docker 데몬 기동 중"
   mkdir -p /etc/docker
-  [ -f /etc/docker/daemon.json ] || echo '{ "storage-driver": "vfs" }' > /etc/docker/daemon.json
+  # overlay2 를 먼저 쓴다. vfs 는 레이어를 통째로 복사해 디스크를 수십 배 쓰고,
+  # 레이어가 깊어지면 빌드가 "failed to prepare ... invalid argument" 로 실패한다.
+  # 중첩 환경에서 overlay2 가 안 되는 경우에만 vfs 로 내려간다.
+  [ -f /etc/docker/daemon.json ] || echo '{ "storage-driver": "overlay2" }' > /etc/docker/daemon.json
   nohup env HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" NO_PROXY="${NO_PROXY:-}" \
     dockerd > /tmp/dockerd.log 2>&1 &
   for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done
+
+  if ! docker info >/dev/null 2>&1; then
+    log "overlay2 기동 실패 — vfs 로 재시도"
+    echo '{ "storage-driver": "vfs" }' > /etc/docker/daemon.json
+    nohup env HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" NO_PROXY="${NO_PROXY:-}" \
+      dockerd >> /tmp/dockerd.log 2>&1 &
+    for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done
+  fi
+
   docker info >/dev/null 2>&1 || { log "Docker 기동 실패 — /tmp/dockerd.log 확인"; exit 1; }
-  log "Docker 데몬 준비 완료"
+  log "Docker 데몬 준비 완료 (storage-driver=$(docker info --format '{{.Driver}}'))"
 fi
 
 # ── 3. 테스트용 이미지 ──────────────────────────────────────────────────────
@@ -61,7 +73,9 @@ FROM mcr.microsoft.com/dotnet/runtime-deps:8.0-noble
 RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends redis-server \
  && rm -rf /var/lib/apt/lists/*
 EXPOSE 6379
-ENTRYPOINT ["redis-server", "--protected-mode", "no", "--save", "", "--appendonly", "no"]
+# ENTRYPOINT 가 아니라 CMD 를 쓴다. ENTRYPOINT 로 두면 docker-compose 의 command 가
+# 덮어쓰지 못하고 뒤에 덧붙어 인자가 깨진다(공식 redis 이미지와 같은 규약).
+CMD ["redis-server", "--protected-mode", "no", "--save", "", "--appendonly", "no"]
 DOCKERFILE
   docker build -q --build-arg http_proxy="${HTTP_PROXY:-}" --build-arg https_proxy="${HTTPS_PROXY:-}" \
     -t "$REDIS_IMAGE" "$build_dir" >/dev/null
@@ -84,7 +98,35 @@ else
   log "k6 설치 완료: $(k6 version | head -1)"
 fi
 
+# ── 5. 로컬 검증용 nginx 이미지 ─────────────────────────────────────────────
+# docker-compose 의 프록시도 Docker Hub(nginx:alpine)를 쓰므로 같은 이유로 막힌다.
+NGINX_IMAGE_LOCAL="coupon-ops/nginx:local"
+if docker image inspect "$NGINX_IMAGE_LOCAL" >/dev/null 2>&1; then
+  log "nginx 이미지 캐시됨"
+else
+  log "nginx 이미지 빌드 중 (Docker Hub 차단 우회)"
+  build_dir=$(mktemp -d)
+  cat > "$build_dir/Dockerfile" <<'DOCKERFILE'
+FROM mcr.microsoft.com/dotnet/runtime-deps:8.0-noble
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends nginx \
+ && rm -rf /var/lib/apt/lists/* \
+ && ln -sf /dev/stdout /var/log/nginx/access.log \
+ && ln -sf /dev/stderr /var/log/nginx/error.log
+# 공식 nginx 이미지와 같은 규약: /etc/nginx/conf.d/*.conf 를 읽는다.
+RUN rm -f /etc/nginx/sites-enabled/default
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+DOCKERFILE
+  docker build -q --network=host \
+    --build-arg http_proxy="${HTTP_PROXY:-}" --build-arg https_proxy="${HTTPS_PROXY:-}" \
+    -t "$NGINX_IMAGE_LOCAL" "$build_dir" >/dev/null
+  rm -rf "$build_dir"
+fi
+
 log "환경 준비 완료. 통합 테스트 실행 전 다음 환경변수가 필요하다:"
 log "  export TESTCONTAINERS_RYUK_DISABLED=true   # ryuk 이미지는 Docker Hub 에 있어 받을 수 없다"
 log "  export COUPONOPS_TEST_MSSQL_IMAGE=$MSSQL_IMAGE"
 log "  export COUPONOPS_TEST_REDIS_IMAGE=$REDIS_IMAGE"
+log ""
+log "docker compose 로 전체 기동할 때는 (Docker Hub 차단 우회):"
+log "  REDIS_IMAGE=$REDIS_IMAGE NGINX_IMAGE=$NGINX_IMAGE_LOCAL docker compose up -d"

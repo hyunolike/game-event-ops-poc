@@ -1,0 +1,72 @@
+name: Release
+
+# main 에 들어온 것만 이미지가 된다. 브랜치는 CI 까지, main 은 배포 가능한 산출물까지.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  image:
+    name: 이미지 빌드 · GHCR 푸시
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      packages: write      # GHCR 푸시에 필요한 최소 권한
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # GITHUB_TOKEN 으로 로그인한다. 별도 시크릿을 만들지 않아도 되고,
+      # 토큰이 실행 단위로 만료되므로 유출 영향이 작다.
+      - name: GHCR 로그인
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 태그·라벨 산출
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=coupon-ops-tool
+            org.opencontainers.image.description=선착순 쿠폰 발급 + 운영툴 PoC
+
+      - name: 빌드 · 푸시
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # 레이어 캐시를 GitHub Actions 캐시에 둔다. 소스만 바뀐 경우 restore 레이어가 재사용된다.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 커밋 SHA 태그를 요약에 남긴다 — 배포 스크립트에 넣을 값이 바로 이것이다.
+      - name: 배포 방법 안내
+        run: |
+          {
+            echo "### 이미지"
+            echo '```'
+            echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+            echo '```'
+            echo "배포:"
+            echo '```bash'
+            echo "bash deploy/deploy.sh ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

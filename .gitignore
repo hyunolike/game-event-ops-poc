@@ -17,6 +17,9 @@ coverage*.json
 .vscode/
 .idea/
 
+# 사설 CA 인증서 (환경마다 다르므로 커밋하지 않는다)
+certs/*.crt
+
 # 로컬 시크릿 (운영 접속 정보는 절대 커밋하지 않는다)
 appsettings.Development.local.json
 *.env

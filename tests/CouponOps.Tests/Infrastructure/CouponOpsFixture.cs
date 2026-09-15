@@ -62,6 +62,24 @@ public sealed class CouponOpsFixture : IAsyncLifetime
         _ = _app.Services;
 
         Redis = await ConnectionMultiplexer.ConnectAsync(RedisConnectionString);
+
+        // 운영자 계정 시드는 이제 백그라운드 워커가 한다(DB 가 늦게 떠도 앱이 죽지 않도록).
+        // 로그인하는 테스트가 시드보다 먼저 돌지 않도록 여기서 기다린다.
+        await WaitForAdminSeedAsync(TimeSpan.FromSeconds(60));
+    }
+
+    private async Task WaitForAdminSeedAsync(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            using var scope = CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            if (await db.AdminUsers.AnyAsync()) return;
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException("운영자 계정 시드가 완료되지 않았습니다.");
     }
 
     private async Task MigrateAsync()
