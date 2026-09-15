@@ -49,6 +49,7 @@ public sealed class CouponOpsFixture : IAsyncLifetime
              // 테스트는 적재 지연을 기다린다. 기본 200ms 대신 짧게 잡아 대기 시간을 줄인다.
              .UseSetting("Issuance:PersistencePollInterval", "00:00:00.050")
              .UseSetting("Issuance:CodeSecret", "test-secret")
+             .UseSetting("Admin:SeedPassword", AdminClient.SeedPassword)
              // EF 의 SQL 로그가 테스트 출력을 덮지 않도록 낮춘다.
              .UseSetting("Logging:LogLevel:Default", "Warning")
              .UseSetting("Logging:LogLevel:Microsoft.EntityFrameworkCore", "Warning"));

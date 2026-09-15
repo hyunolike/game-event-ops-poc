@@ -1,0 +1,66 @@
+@page
+@model CouponOps.Pages.Events.EditModel
+@{
+    ViewData["Title"] = "이벤트 수정";
+    var started = Model.Status != EventStatus.Scheduled;
+}
+
+<h1>이벤트 수정</h1>
+<p class="sub"><span class="mono">@Model.Event!.Code</span> · @Model.Event.Name</p>
+
+@if (Model.Errors.Count > 0)
+{
+    <div class="alert error">
+        수정할 수 없습니다.
+        <ul>@foreach (var e in Model.Errors) { <li>@e</li> }</ul>
+    </div>
+}
+
+@if (started)
+{
+    <div class="alert warn">
+        이미 시작된 이벤트입니다. <strong>수량은 늘릴 수만 있습니다.</strong>
+        줄이면 이미 발급된 쿠폰과 어긋나고, 누가 못 받게 되는지 예측할 수 없습니다.
+        발급을 멈추려면 상세 화면의 <strong>강제 중단</strong>을 사용하세요.
+    </div>
+}
+
+<form method="post" class="card">
+    <input type="hidden" name="Id" value="@Model.Id" />
+    <div class="form-grid">
+        <div>
+            <label>이벤트 코드 <span class="hint">변경 불가</span></label>
+            <input value="@Model.Event.Code" disabled />
+        </div>
+        <div>
+            <label for="name">이벤트 이름</label>
+            <input id="name" name="Name" value="@Model.Name" maxlength="200" required />
+        </div>
+        <div>
+            <label for="startsAt">시작 시각 <span class="hint">KST</span></label>
+            <input id="startsAt" name="StartsAt" type="datetime-local" value="@Model.StartsAt.ToString("yyyy-MM-ddTHH:mm")" required />
+        </div>
+        <div>
+            <label for="endsAt">종료 시각 <span class="hint">KST</span></label>
+            <input id="endsAt" name="EndsAt" type="datetime-local" value="@Model.EndsAt.ToString("yyyy-MM-ddTHH:mm")" required />
+        </div>
+        <div>
+            <label for="qty">총 발급 수량 @if (started) { <span class="hint">증량만 가능 (현재 @Model.Event.TotalQuantity.ToString("N0"))</span> }</label>
+            <input id="qty" name="TotalQuantity" type="number" value="@Model.TotalQuantity"
+                   min="@(started ? Model.Event.TotalQuantity : 1)" required />
+        </div>
+        <div>
+            <label for="limit">유저당 발급 한도</label>
+            <input id="limit" name="PerUserLimit" type="number" min="1" value="@Model.PerUserLimit" required />
+        </div>
+        <div style="grid-column: 1 / -1">
+            <label for="reason">변경 사유 <span class="hint">운영 로그에 남습니다</span></label>
+            <input id="reason" name="Reason" value="@Model.Reason" maxlength="500" placeholder="예: 물량 추가 요청 (기획팀)" />
+        </div>
+    </div>
+
+    <div class="actions">
+        <button class="primary" type="submit">저장</button>
+        <a class="btn" href="/Events/Details?id=@Model.Id">취소</a>
+    </div>
+</form>

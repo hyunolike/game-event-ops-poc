@@ -12,7 +12,7 @@ public static class TestData
         IssuanceMode mode = IssuanceMode.PreGenerated)
     {
         using var scope = fx.CreateScope();
-        var provisioning = scope.ServiceProvider.GetRequiredService<EventProvisioningService>();
+        var provisioning = scope.ServiceProvider.GetRequiredService<EventAdminService>();
         var now = DateTime.UtcNow;
 
         return await provisioning.CreateAndWarmAsync(
@@ -32,7 +32,7 @@ public static class TestData
         int totalQuantity = 10, int perUserLimit = 1)
     {
         using var scope = fx.CreateScope();
-        var provisioning = scope.ServiceProvider.GetRequiredService<EventProvisioningService>();
+        var provisioning = scope.ServiceProvider.GetRequiredService<EventAdminService>();
 
         return await provisioning.CreateAndWarmAsync(
             $"evt-{Guid.NewGuid():N}"[..20], "테스트 이벤트",
@@ -43,7 +43,7 @@ public static class TestData
     public static async Task SuspendAsync(this CouponOpsFixture fx, long eventId, string reason)
     {
         using var scope = fx.CreateScope();
-        var provisioning = scope.ServiceProvider.GetRequiredService<EventProvisioningService>();
+        var provisioning = scope.ServiceProvider.GetRequiredService<EventAdminService>();
         await provisioning.SuspendAsync(eventId, reason, CancellationToken.None);
     }
 

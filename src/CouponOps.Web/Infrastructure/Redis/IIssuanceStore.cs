@@ -11,6 +11,16 @@ public interface IIssuanceStore
     /// <summary>이벤트 메타와 재고를 Redis 에 적재한다(오픈 전 워밍업).</summary>
     Task WarmAsync(CouponEvent ev, IReadOnlyList<string> preGeneratedCodes, CancellationToken ct);
 
+    /// <summary>
+    /// 이벤트 메타(기간·한도 등)를 Redis 에 다시 반영한다.
+    /// 재고는 건드리지 않는다 — 진행 중인 이벤트의 수정에서 재고가 초기화되면 초과 발급이 된다.
+    /// </summary>
+    Task RefreshMetaAsync(CouponEvent ev, CancellationToken ct);
+
+    /// <summary>진행 중 이벤트 증량. 기존 풀 뒤에 코드를 덧붙인다.</summary>
+    Task AppendStockAsync(
+        CouponEvent ev, int additionalQuantity, IReadOnlyList<string> additionalCodes, CancellationToken ct);
+
     /// <summary>운영자 강제 중단/재개를 Redis 메타에 즉시 반영한다.</summary>
     Task SetSuspendedAsync(long eventId, bool suspended, CancellationToken ct);
 

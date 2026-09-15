@@ -1,0 +1,194 @@
+@page
+@model CouponOps.Pages.Events.DetailsModel
+@inject ICurrentActor Actor
+@{
+    ViewData["Title"] = Model.Event!.Name;
+    var suspended = Model.Status == EventStatus.Suspended;
+}
+
+<h1>@Model.Event.Name</h1>
+<p class="sub">
+    <span class="mono">@Model.Event.Code</span> ·
+    <span class="badge @Model.Status.ToString().ToLowerInvariant()" id="statusBadge">@StatusText(Model.Status)</span> ·
+    @KoreaTime.Format(Model.Event.StartsAt) → @KoreaTime.Format(Model.Event.EndsAt) (KST)
+</p>
+
+@if (TempData["Flash"] is string flash)
+{
+    <div class="alert ok">@flash</div>
+}
+@if (Model.Error is not null)
+{
+    <div class="alert error">@Model.Error</div>
+}
+@if (suspended)
+{
+    <div class="alert error">
+        <strong>강제 중단됨</strong> — @KoreaTime.Format(Model.Event.SuspendedAt!.Value)
+        @if (!string.IsNullOrWhiteSpace(Model.Event.SuspendReason)) { <span>· 사유: @Model.Event.SuspendReason</span> }
+    </div>
+}
+
+<h2>실시간 소진 현황 <span class="hint" style="font-weight:400;color:var(--muted)">3초마다 갱신</span></h2>
+<div class="stats">
+    <div class="stat"><div class="label">총 수량</div><div class="value">@Model.Event.TotalQuantity.ToString("N0")</div></div>
+    <div class="stat"><div class="label">발급됨</div><div class="value" id="issued">@Model.Issued.ToString("N0")</div></div>
+    <div class="stat"><div class="label">잔여</div><div class="value" id="remaining">@Model.Remaining.ToString("N0")</div></div>
+    <div class="stat"><div class="label">소진율</div><div class="value" id="rate">@Model.Rate.ToString("0.#")%</div></div>
+    <div class="stat">
+        <div class="label">DB 적재 대기</div>
+        <div class="value" id="pending">@Math.Max(0, Model.Issued - Model.PersistedSuccess).ToString("N0")</div>
+    </div>
+</div>
+
+<div class="card" style="margin-top:12px">
+    <div class="meter">
+        <div class="track"><div class="fill @(Model.Rate >= 100 ? "full" : "")" id="meterFill"
+             style="width:@(Math.Min(100, Model.Rate).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></div></div>
+        <span class="pct" id="meterPct">@Model.Rate.ToString("0.#")%</span>
+    </div>
+    <p style="margin:10px 0 0;color:var(--muted);font-size:13px">
+        발급 수는 Redis 기준입니다. <strong>DB 적재 대기</strong>는 Redis 에서 발급됐지만 아직 이력 테이블에
+        기록되지 않은 건수로, 비동기 적재의 지연을 뜻합니다 — 발급 자체는 이미 확정된 상태입니다.
+    </p>
+</div>
+
+<div class="actions">
+    <a class="btn" href="/Issuances?eventId=@Model.Id">발급 이력 보기</a>
+    <a class="btn" href="/OperationLogs?targetId=@Model.Id">이 이벤트의 운영 로그</a>
+    @if (Actor.CanEdit)
+    {
+        <a class="btn primary" href="/Events/Edit?id=@Model.Id">수정</a>
+    }
+</div>
+
+@if (Actor.CanEdit)
+{
+    <h2>위험 액션</h2>
+    <div class="danger-zone">
+        @if (suspended)
+        {
+            <h2>이벤트 재개</h2>
+            <p>재개하면 신규 발급이 다시 허용됩니다. 잔여 수량 @Model.Remaining.ToString("N0")개가 남아 있습니다.</p>
+            <form method="post" asp-page-handler="Resume">
+                <input type="hidden" name="Id" value="@Model.Id" />
+                <div style="max-width:420px">
+                    <label for="resumeReason">재개 사유</label>
+                    <input id="resumeReason" name="Reason" maxlength="500" placeholder="예: 원인 조치 완료" />
+                </div>
+                <div class="actions">
+                    <button class="primary" type="submit" onclick="return confirm('이벤트를 재개합니다. 신규 발급이 즉시 허용됩니다. 계속할까요?')">재개</button>
+                </div>
+            </form>
+        }
+        else
+        {
+            <h2>강제 중단</h2>
+            <p>
+                즉시 신규 발급이 차단됩니다. <strong>이미 발급된 쿠폰은 회수되지 않습니다.</strong>
+                확인을 위해 이벤트 코드 <span class="mono"><strong>@Model.Event.Code</strong></span> 를 입력하세요.
+            </p>
+            <form method="post" asp-page-handler="Suspend">
+                <input type="hidden" name="Id" value="@Model.Id" />
+                <div class="form-grid" style="max-width:640px">
+                    <div>
+                        <label for="confirmCode">이벤트 코드 확인</label>
+                        <input id="confirmCode" name="ConfirmCode" class="mono" autocomplete="off" required />
+                    </div>
+                    <div>
+                        <label for="reason">중단 사유 <span class="hint">필수</span></label>
+                        <input id="reason" name="Reason" maxlength="500" placeholder="예: 코드 유출 정황" required />
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="danger" type="submit" onclick="return confirm('정말 강제 중단할까요? 신규 발급이 즉시 차단됩니다.')">강제 중단</button>
+                </div>
+            </form>
+        }
+    </div>
+}
+
+<h2>최근 운영 이력</h2>
+<div class="table-wrap">
+    <table>
+        <thead><tr><th>시각 (KST)</th><th>액션</th><th>운영자</th><th>변경 필드</th><th>사유</th></tr></thead>
+        <tbody>
+        @foreach (var op in Model.RecentOperations)
+        {
+            <tr>
+                <td class="mono nowrap">@KoreaTime.Format(op.OccurredAt)</td>
+                <td class="nowrap">@ActionText(op.Action)</td>
+                <td>@op.ActorLoginId</td>
+                <td class="mono">@(op.ChangedFields ?? "-")</td>
+                <td>@(op.Reason ?? "-")</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    @if (Model.RecentOperations.Count == 0)
+    {
+        <div class="empty">운영 이력이 없습니다.</div>
+    }
+</div>
+
+@functions {
+    static string ActionText(OperationAction a) => a switch
+    {
+        OperationAction.EventCreated => "이벤트 생성",
+        OperationAction.EventUpdated => "이벤트 수정",
+        OperationAction.EventSuspended => "강제 중단",
+        OperationAction.EventResumed => "재개",
+        OperationAction.CouponPoolWarmed => "코드 준비",
+        OperationAction.CouponRevoked => "쿠폰 회수",
+        OperationAction.AdminSignedIn => "로그인",
+        _ => a.ToString(),
+    };
+
+    static string StatusText(EventStatus s) => s switch
+    {
+        EventStatus.Scheduled => "예정",
+        EventStatus.Active => "진행중",
+        EventStatus.Ended => "종료",
+        EventStatus.Suspended => "중단",
+        _ => s.ToString(),
+    };
+}
+
+@section Scripts {
+<script>
+// 폴링으로 충분하다. 화면을 보는 사람은 운영자 몇 명이고 3초 지연은 의사결정에 영향이 없다.
+// WebSocket 을 쓰면 연결 관리·재연결·스케일아웃 백플레인 비용이 따라온다.
+(function () {
+  const eventId = @Model.Id;
+  const nf = new Intl.NumberFormat('ko-KR');
+  const statusText = { Scheduled: '예정', Active: '진행중', Ended: '종료', Suspended: '중단' };
+
+  async function poll() {
+    try {
+      const res = await fetch(`/api/events/${eventId}/status`, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) return;             // 인증 만료 등. 다음 주기에 다시 시도한다.
+      const s = await res.json();
+
+      document.getElementById('issued').textContent = nf.format(s.issued);
+      document.getElementById('remaining').textContent = nf.format(s.remaining);
+      document.getElementById('rate').textContent = s.consumedRate.toFixed(1).replace(/\.0$/, '') + '%';
+      document.getElementById('pending').textContent = nf.format(s.pendingPersistence);
+
+      const fill = document.getElementById('meterFill');
+      fill.style.width = Math.min(100, s.consumedRate) + '%';
+      fill.classList.toggle('full', s.consumedRate >= 100);
+      document.getElementById('meterPct').textContent = s.consumedRate.toFixed(1).replace(/\.0$/, '') + '%';
+
+      const badge = document.getElementById('statusBadge');
+      badge.textContent = statusText[s.status] || s.status;
+      badge.className = 'badge ' + s.status.toLowerCase();
+    } catch (_) {
+      // 네트워크 오류는 조용히 넘긴다. 다음 주기가 곧 온다.
+    }
+  }
+
+  // 탭이 백그라운드일 때는 폴링하지 않는다 — 운영툴을 열어둔 채 방치하는 일이 흔하다.
+  setInterval(() => { if (!document.hidden) poll(); }, 3000);
+})();
+</script>
+}

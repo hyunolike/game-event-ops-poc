@@ -1,0 +1,157 @@
+/* 운영툴 스타일 — 프레임워크 없이 순수 CSS.
+   운영 화면은 하루 종일 들여다보는 도구라 밀도와 가독성이 우선이다. */
+
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --border: #dfe3e8;
+  --text: #1c2024;
+  --muted: #6b7480;
+  --accent: #1f5fd0;
+  --accent-soft: #eaf1fd;
+  --danger: #c0342b;
+  --danger-soft: #fdeceb;
+  --ok: #1a7f4b;
+  --ok-soft: #e7f5ed;
+  --warn: #9a6400;
+  --warn-soft: #fdf3e0;
+  --radius: 6px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 14px/1.55 -apple-system, "Segoe UI", "Noto Sans KR", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── 헤더 ───────────────────────────────────────────── */
+header.top {
+  display: flex; align-items: center; gap: 24px;
+  padding: 0 20px; height: 52px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+header.top .brand { font-weight: 700; letter-spacing: -.2px; }
+header.top nav { display: flex; gap: 4px; flex: 1; }
+header.top nav a {
+  padding: 6px 12px; border-radius: var(--radius); color: var(--text);
+}
+header.top nav a:hover { background: var(--bg); text-decoration: none; }
+header.top nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+header.top .who { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 10px; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 60px; }
+
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 26px 0 10px; }
+.sub { color: var(--muted); margin: 0 0 18px; }
+
+/* ── 카드 / 패널 ────────────────────────────────────── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
+}
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+.stat .label { color: var(--muted); font-size: 12px; }
+.stat .value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+/* ── 테이블 ─────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; background: var(--surface); }
+thead th {
+  text-align: left; font-size: 12px; color: var(--muted); font-weight: 600;
+  padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+tbody td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tbody tr:hover { background: #fafbfc; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.nowrap, th.nowrap { white-space: nowrap; }
+td.mono, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.empty { padding: 34px; text-align: center; color: var(--muted); }
+
+/* ── 뱃지 ───────────────────────────────────────────── */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 99px;
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.badge.scheduled { background: var(--accent-soft); color: var(--accent); }
+.badge.active    { background: var(--ok-soft); color: var(--ok); }
+.badge.ended     { background: #eef0f2; color: var(--muted); }
+.badge.suspended { background: var(--danger-soft); color: var(--danger); }
+.badge.success   { background: var(--ok-soft); color: var(--ok); }
+.badge.fail      { background: var(--warn-soft); color: var(--warn); }
+.badge.error     { background: var(--danger-soft); color: var(--danger); }
+
+/* ── 소진율 바 ──────────────────────────────────────── */
+.meter { display: flex; align-items: center; gap: 8px; min-width: 150px; }
+.meter .track { flex: 1; height: 6px; background: #eef0f2; border-radius: 99px; overflow: hidden; }
+.meter .fill { height: 100%; background: var(--accent); border-radius: 99px; transition: width .4s ease; }
+.meter .fill.full { background: var(--danger); }
+.meter .pct { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; }
+
+/* ── 폼 ─────────────────────────────────────────────── */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+label .hint { font-weight: 400; color: var(--muted); }
+input, select, textarea {
+  width: 100%; padding: 7px 9px; font: inherit;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text);
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.filters > div { min-width: 140px; }
+.filters .grow { flex: 1; }
+
+/* ── 버튼 ───────────────────────────────────────────── */
+button, .btn {
+  display: inline-block; padding: 7px 14px; font: inherit; font-weight: 600;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--text); cursor: pointer;
+}
+button:hover, .btn:hover { background: var(--bg); text-decoration: none; }
+button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { background: #1a51b4; }
+button.danger, .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+button.danger:hover { background: #a62a22; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.actions { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+
+/* ── 알림 ───────────────────────────────────────────── */
+.alert { padding: 11px 14px; border-radius: var(--radius); margin-bottom: 16px; border: 1px solid; }
+.alert.error { background: var(--danger-soft); border-color: #f3c9c6; color: #7d201a; }
+.alert.ok { background: var(--ok-soft); border-color: #bfe3cf; color: #0f5c35; }
+.alert.warn { background: var(--warn-soft); border-color: #eedcb4; color: #6d4700; }
+.alert ul { margin: 6px 0 0; padding-left: 18px; }
+
+/* 위험 구역 — 강제 중단처럼 되돌리기 어려운 액션 */
+.danger-zone { border: 1px solid #f3c9c6; background: var(--danger-soft); border-radius: var(--radius); padding: 16px; }
+.danger-zone h2 { margin-top: 0; color: #7d201a; }
+
+/* ── 페이징 ─────────────────────────────────────────── */
+.pager { display: flex; gap: 6px; align-items: center; margin-top: 14px; }
+.pager .info { color: var(--muted); margin-right: auto; font-size: 13px; }
+.pager a, .pager span {
+  padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--text);
+}
+.pager span.disabled { color: #b9bfc6; }
+
+details.json summary { cursor: pointer; color: var(--accent); font-size: 12.5px; }
+details.json pre {
+  margin: 6px 0 0; padding: 9px; background: #f3f4f6; border-radius: var(--radius);
+  overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all;
+}
+
+.login-wrap { max-width: 340px; margin: 90px auto; }
+.login-wrap .card { padding: 26px; }
+.login-wrap h1 { text-align: center; margin-bottom: 20px; }
+.login-wrap .field { margin-bottom: 13px; }
+.login-wrap button { width: 100%; }
+.login-wrap .seed { margin-top: 16px; font-size: 12.5px; color: var(--muted); text-align: center; }

@@ -103,7 +103,7 @@ Events 테이블 저장 컬럼:   StartsAt, EndsAt, SuspendedAt (nullable), Susp
 ```
 
 파생 규칙은 `EventStatusRules.ToStatus(e, now)` 한 곳에만 두고,
-**동일 규칙을 `Expression<Func<CouponEvent, EventStatus>>`로도 노출**해 EF Core가 SQL로 번역하게 한다.
+**동일 규칙을 `Expression<Func<CouponEvent, bool>>`(상태별 술어)로도 노출**해 EF Core가 SQL로 번역하게 한다.
 → 운영툴 목록의 상태별 필터가 메모리 필터링이 아니라 **인덱스를 타는 WHERE 절**이 된다.
 스케줄러 없이도 상태가 항상 정확하고, 규칙이 C#과 SQL에서 갈라지지 않는다.
 

@@ -85,6 +85,36 @@ public sealed class RedisIssuanceStore(
         await db.SetAddAsync(RedisKeys.StreamRegistry, ev.Id);
     }
 
+    public Task RefreshMetaAsync(CouponEvent ev, CancellationToken ct) =>
+        Db.HashSetAsync(RedisKeys.Meta(ev.Id),
+        [
+            new HashEntry("startsAtMs", ToMs(ev.StartsAt)),
+            new HashEntry("endsAtMs", ToMs(ev.EndsAt)),
+            new HashEntry("suspended", ev.SuspendedAt is null ? "0" : "1"),
+            new HashEntry("perUserLimit", ev.PerUserLimit),
+            new HashEntry("mode", (int)ev.IssuanceMode),
+        ]);
+
+    public async Task AppendStockAsync(
+        CouponEvent ev, int additionalQuantity, IReadOnlyList<string> additionalCodes, CancellationToken ct)
+    {
+        if (ev.IssuanceMode == IssuanceMode.PreGenerated)
+        {
+            const int chunk = 1000;
+            for (var i = 0; i < additionalCodes.Count; i += chunk)
+            {
+                ct.ThrowIfCancellationRequested();
+                var slice = additionalCodes.Skip(i).Take(chunk).Select(c => (RedisValue)c).ToArray();
+                await Db.ListRightPushAsync(RedisKeys.Pool(ev.Id), slice);
+            }
+        }
+        else
+        {
+            // 카운터 방식은 증분만 더한다. SET 으로 덮으면 그 사이 발급된 수량이 되살아난다.
+            await Db.StringIncrementAsync(RedisKeys.Stock(ev.Id), additionalQuantity);
+        }
+    }
+
     public Task SetSuspendedAsync(long eventId, bool suspended, CancellationToken ct) =>
         Db.HashSetAsync(RedisKeys.Meta(eventId), "suspended", suspended ? "1" : "0");
 
