@@ -74,8 +74,21 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./deploy/nginx/active-upstream.conf:/etc/nginx/conf.d/active-upstream.conf
+      # 디렉터리째 마운트한다. 배포 스크립트가 호스트에서 쓰는 파일과 같은 실체여야 한다.
+      - ./deploy/nginx:/etc/nginx/conf.d
+    # 기동할 때마다 기본값(blue)으로 되돌린다.
+    # compose 가 띄우는 앱은 blue 이므로, 이전 배포가 남긴 green 설정이 남아 있으면
+    # 존재하지 않는 컨테이너를 가리켜 프록시가 뜨지 못한다.
+    command:
+      - /bin/sh
+      - -c
+      - "cp /etc/nginx/conf.d/active-upstream.conf.default /etc/nginx/conf.d/active-upstream.conf
+         && exec nginx -g 'daemon off;'"
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     depends_on: [app]
     networks: [couponops]
 

@@ -32,6 +32,9 @@ fail() { printf '\033[1;31m[deploy]\033[0m %s\n' "$*" >&2; }
 ok()   { printf '\033[1;32m[deploy]\033[0m %s\n' "$*"; }
 
 # ── 현재 색깔 판별 ───────────────────────────────────────────────────────────
+# 생성물이 아직 없으면(프록시가 막 뜬 직후 등) 기본값에서 시작한다.
+[ -f "$UPSTREAM_FILE" ] || cp "$UPSTREAM_FILE.default" "$UPSTREAM_FILE"
+
 CURRENT=$(grep -o 'couponops-app-[a-z]*' "$UPSTREAM_FILE" | head -1 | sed 's/couponops-app-//')
 if [ "$CURRENT" = "blue" ]; then NEXT=green; NEXT_PORT=8082; else NEXT=blue; NEXT_PORT=8081; fi
 
