@@ -154,7 +154,7 @@ GET /health         →  /health/ready 의 별칭
 |---|---|
 | 복원 | NuGet 캐시 적중 시 대부분 생략 |
 | 빌드 | Release 구성 |
-| 테스트 | **Testcontainers 로 실제 MSSQL·Redis** 를 띄워 통합 테스트 44건 |
+| 테스트 | **Testcontainers 로 실제 MSSQL·Redis** 를 띄워 통합 테스트 46건 |
 | 커버리지 | cobertura 수집 → ReportGenerator → **실행 요약에 직접 표시** |
 | 아티팩트 | trx + HTML 리포트 (14일 보관) |
 | 배포 시연 | compose 기동 → 무중단 배포 → **롤백 경로 확인** |

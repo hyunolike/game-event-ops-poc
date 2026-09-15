@@ -67,11 +67,16 @@ docker run -d --name "$NEXT_CONTAINER" --network "$NETWORK" \
 log "새 인스턴스 기동됨 ($NEXT_CONTAINER, 포트 $NEXT_PORT)"
 
 # ── 3. 준비 대기 — 트래픽 전환의 게이트 ──────────────────────────────────────
+# 경과 시간으로 센다. 반복 횟수로 세면 curl 왕복 시간 때문에 실제 대기가
+# 의도한 시간을 크게 넘어선다(응답이 느릴 때 특히).
 log "준비 상태 대기 (최대 ${READY_TIMEOUT}초)"
 READY=0
-for i in $(seq 1 "$READY_TIMEOUT"); do
+DEADLINE=$(( $(date +%s) + READY_TIMEOUT ))
+STARTED_AT=$(date +%s)
+
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   if curl -fsS --max-time 2 "http://localhost:$NEXT_PORT/health/ready" >/dev/null 2>&1; then
-    ok "준비 완료 (${i}초)"
+    ok "준비 완료 ($(( $(date +%s) - STARTED_AT ))초)"
     READY=1
     break
   fi

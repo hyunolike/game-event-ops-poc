@@ -139,7 +139,7 @@ curl -X POST http://localhost:8080/api/events/1/coupons/issue \
 테스트와 부하 측정:
 
 ```bash
-dotnet test                                    # 통합 테스트 44건 (Testcontainers)
+dotnet test                                    # 통합 테스트 46건 (Testcontainers)
 bash loadtest/run-comparison.sh /tmp/results   # 3경로 × 3 VU 레벨
 bash deploy/deploy.sh couponops:local          # 무중단 배포 (blue-green)
 ```
@@ -234,7 +234,7 @@ src/CouponOps.Web/          단일 프로젝트 (Minimal API + Razor Pages)
 │  └─ Workers/              비동기 적재 워커
 └─ Pages/                   운영툴
 
-tests/CouponOps.Tests/      통합 테스트 44건 (Testcontainers, 실제 MSSQL·Redis)
+tests/CouponOps.Tests/      통합 테스트 46건 (Testcontainers, 실제 MSSQL·Redis)
 loadtest/                   k6 시나리오 + 측정 스크립트
 deploy/                     blue-green 배포 스크립트 · nginx
 docs/                       설계·측정·CI/CD·AI 활용 기록
