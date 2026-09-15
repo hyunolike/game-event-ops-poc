@@ -117,7 +117,17 @@ public sealed class CouponOpsFixture : IAsyncLifetime
             await Task.Delay(100);
         }
 
-        throw new TimeoutException($"이벤트 {eventId} 의 이력 경로 {expected}종이 적재되지 않았습니다.");
+        using var last = CreateScope();
+        var lastDb = last.ServiceProvider.GetRequiredService<AppDbContext>();
+        var observed = await lastDb.IssuanceLogs.AsNoTracking()
+            .Where(l => l.EventId == eventId)
+            .Select(l => new { l.IssuePath, l.Result })
+            .ToListAsync();
+
+        throw new TimeoutException(
+            $"이벤트 {eventId} 의 이력 경로 {expected}종이 적재되지 않았습니다. "
+            + $"관측된 이력 {observed.Count}건: "
+            + string.Join(", ", observed.Select(o => $"{o.IssuePath}/{o.Result}")));
     }
 
     public async Task DisposeAsync()
