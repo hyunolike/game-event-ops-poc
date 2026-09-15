@@ -122,15 +122,18 @@ jobs:
       # 준비되지 않은 인스턴스가 배포되면 전환하지 않고 되돌아와야 한다.
       - name: 롤백 경로 확인 (실패 주입)
         run: |
-          rm -f /tmp/stop
-          BEFORE=$(grep -o 'couponops-app-[a-z]*' deploy/nginx/active-upstream.conf | head -1)
+          # 활성 업스트림은 프록시 컨테이너 안에 있다(호스트에 두지 않는 이유는 compose 주석 참조).
+          active() { docker exec couponops-proxy cat /etc/nginx/conf.d/active-upstream.conf \
+                       | grep -o 'couponops-app-[a-z]*' | head -1; }
+
+          BEFORE=$(active)
 
           if bash deploy/deploy.sh couponops:ci --simulate-failure; then
             echo "준비되지 않은 인스턴스로 전환됐다 — 배포 게이트가 동작하지 않는다" >&2
             exit 1
           fi
 
-          AFTER=$(grep -o 'couponops-app-[a-z]*' deploy/nginx/active-upstream.conf | head -1)
+          AFTER=$(active)
           echo "활성 업스트림: $BEFORE → $AFTER"
           test "$BEFORE" = "$AFTER"
 

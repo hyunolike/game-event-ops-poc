@@ -17,9 +17,6 @@ coverage*.json
 .vscode/
 .idea/
 
-# 배포 스크립트가 생성·수정하는 파일 (기본값은 .default 로 커밋한다)
-deploy/nginx/active-upstream.conf
-
 # 사설 CA 인증서 (환경마다 다르므로 커밋하지 않는다)
 certs/*.crt
 

@@ -74,15 +74,17 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # 디렉터리째 마운트한다. 배포 스크립트가 호스트에서 쓰는 파일과 같은 실체여야 한다.
-      - ./deploy/nginx:/etc/nginx/conf.d
-    # 기동할 때마다 기본값(blue)으로 되돌린다.
-    # compose 가 띄우는 앱은 blue 이므로, 이전 배포가 남긴 green 설정이 남아 있으면
-    # 존재하지 않는 컨테이너를 가리켜 프록시가 뜨지 못한다.
+      # 읽기 전용으로만 마운트한다. 활성 업스트림 파일은 컨테이너 안에서만 살고
+      # 호스트에 남지 않는다 — 호스트에 두면 (1) 이전 배포 상태가 저장소에 남고
+      # (2) 컨테이너가 root 로 만든 파일을 일반 사용자인 배포 스크립트가 못 고친다.
+      - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/active-upstream.conf.default:/etc/nginx/active-upstream.conf.default:ro
+    # 기동할 때마다 기본값(blue)에서 시작한다. compose 가 띄우는 앱이 blue 이므로
+    # 그것이 올바른 초기 상태다.
     command:
       - /bin/sh
       - -c
-      - "cp /etc/nginx/conf.d/active-upstream.conf.default /etc/nginx/conf.d/active-upstream.conf
+      - "cp /etc/nginx/active-upstream.conf.default /etc/nginx/conf.d/active-upstream.conf
          && exec nginx -g 'daemon off;'"
     healthcheck:
       test: ["CMD-SHELL", "nginx -t >/dev/null 2>&1 || exit 1"]

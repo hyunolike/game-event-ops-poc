@@ -16,7 +16,9 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-UPSTREAM_FILE="$ROOT/deploy/nginx/active-upstream.conf"
+# 활성 업스트림 설정은 프록시 컨테이너 안에 있다(호스트에 두지 않는 이유는 compose 주석 참조).
+# 따라서 읽기·쓰기 모두 컨테이너를 통해 한다 — 호스트 권한 문제가 원천적으로 없다.
+UPSTREAM_PATH=/etc/nginx/conf.d/active-upstream.conf
 NETWORK=${NETWORK:-couponops}
 PROXY=${PROXY:-couponops-proxy}
 SA_PASSWORD=${SA_PASSWORD:-'Local_Dev_P@ssw0rd!'}
@@ -28,14 +30,18 @@ IMAGE=${1:?사용법: deploy.sh <이미지> [--simulate-failure]}
 SIMULATE_FAILURE=${2:-}
 
 log()  { printf '\033[1;34m[deploy]\033[0m %s\n' "$*"; }
+
+read_active()  { docker exec "$PROXY" cat "$UPSTREAM_PATH" 2>/dev/null | grep -o 'couponops-app-[a-z]*' | head -1; }
+write_active() { docker exec -i "$PROXY" sh -c "cat > $UPSTREAM_PATH"; }
 fail() { printf '\033[1;31m[deploy]\033[0m %s\n' "$*" >&2; }
 ok()   { printf '\033[1;32m[deploy]\033[0m %s\n' "$*"; }
 
 # ── 현재 색깔 판별 ───────────────────────────────────────────────────────────
-# 생성물이 아직 없으면(프록시가 막 뜬 직후 등) 기본값에서 시작한다.
-[ -f "$UPSTREAM_FILE" ] || cp "$UPSTREAM_FILE.default" "$UPSTREAM_FILE"
-
-CURRENT=$(grep -o 'couponops-app-[a-z]*' "$UPSTREAM_FILE" | head -1 | sed 's/couponops-app-//')
+CURRENT=$(read_active | sed 's/couponops-app-//')
+if [ -z "$CURRENT" ]; then
+  fail "프록시($PROXY)에서 현재 업스트림을 읽지 못했습니다. 스택이 기동돼 있습니까?"
+  exit 1
+fi
 if [ "$CURRENT" = "blue" ]; then NEXT=green; NEXT_PORT=8082; else NEXT=blue; NEXT_PORT=8081; fi
 
 CURRENT_CONTAINER="couponops-app-$CURRENT"
@@ -98,8 +104,8 @@ fi
 # ── 4. 트래픽 전환 ───────────────────────────────────────────────────────────
 # reload 는 기존 연결을 끊지 않고 새 워커로 넘긴다. 이것이 무중단의 실체다.
 log "트래픽 전환: $CURRENT → $NEXT"
-cat > "$UPSTREAM_FILE" <<EOF
-# 배포 스크립트가 이 파일을 덮어쓴다. 수동으로 편집하지 말 것.
+write_active <<EOF
+# 배포 스크립트가 덮어쓴다. 수동으로 편집하지 말 것.
 upstream couponops_active {
     server $NEXT_CONTAINER:8080;
 }
@@ -117,7 +123,7 @@ done
 
 if [ "$SMOKE_OK" -ne 1 ]; then
   fail "스모크 테스트 실패 — $CURRENT 로 되돌립니다."
-  cat > "$UPSTREAM_FILE" <<EOF
+  write_active <<EOF
 upstream couponops_active {
     server $CURRENT_CONTAINER:8080;
 }
