@@ -37,7 +37,10 @@ public sealed class CouponOpsFixture : IAsyncLifetime
         await Task.WhenAll(_sql.StartAsync(), _redis.StartAsync());
 
         // MsSql 모듈은 master 를 가리킨다. 애플리케이션 DB 로 바꾼다.
-        SqlConnectionString = _sql.GetConnectionString().Replace("Database=master", "Database=CouponOps");
+        // Max Pool Size 를 넉넉히 둔다. DB 경로는 트랜잭션 내내 커넥션을 점유하므로
+        // 기본값 100 이면 잠금 동작을 재기도 전에 풀이 먼저 바닥난다.
+        SqlConnectionString = _sql.GetConnectionString()
+            .Replace("Database=master", "Database=CouponOps") + ";Max Pool Size=200";
         RedisConnectionString = _redis.GetConnectionString();
 
         // 앱을 띄우기 전에 스키마를 만든다. 적재 워커가 기동 직후 없는 테이블을 조회하지 않도록.
@@ -73,6 +76,31 @@ public sealed class CouponOpsFixture : IAsyncLifetime
 
     /// <summary>앱의 DI 에서 스코프를 하나 빌려 준다(직접 DB 를 확인할 때 사용).</summary>
     public IServiceScope CreateScope() => App.Services.CreateScope();
+
+    /// <summary>
+    /// 이벤트의 이력이 기대 건수만큼 적재될 때까지 기다린 뒤 IssuePath 집합을 돌려준다.
+    /// Redis 경로는 비동기 적재라 즉시 보이지 않는다.
+    /// </summary>
+    public async Task<List<string>> WaitForIssuePathsAsync(long eventId, int expected, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            using var scope = CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var paths = await db.IssuanceLogs.AsNoTracking()
+                .Where(l => l.EventId == eventId)
+                .Select(l => l.IssuePath)
+                .Distinct()
+                .ToListAsync();
+
+            if (paths.Count >= expected) return paths;
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException($"이벤트 {eventId} 의 이력 경로 {expected}종이 적재되지 않았습니다.");
+    }
 
     public async Task DisposeAsync()
     {

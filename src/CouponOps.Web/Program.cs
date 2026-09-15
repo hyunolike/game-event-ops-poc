@@ -51,6 +51,7 @@ builder.Services.AddSingleton<IPasswordHasher<AdminUser>, PasswordHasher<AdminUs
 builder.Services.AddScoped<ICurrentActor, HttpCurrentActor>();
 builder.Services.AddScoped<IAuditLogger, AuditLogger>();
 builder.Services.AddScoped<IssueCouponService>();
+builder.Services.AddScoped<DbIssueCouponService>();   // 4단계 비교 측정용 대조군
 builder.Services.AddScoped<EventAdminService>();
 
 builder.Services.AddHostedService<IssuancePersistenceWorker>();
@@ -92,6 +93,7 @@ app.MapRazorPages();
 
 // 유저 대상 발급 API 는 운영툴 인증과 무관하다(게임 클라이언트가 호출한다).
 app.MapIssueEndpoints();
+app.MapIssueDbEndpoints();
 app.MapEventStatusEndpoints();
 
 await AdminUserSeeder.SeedAsync(app.Services,

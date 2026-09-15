@@ -12,7 +12,8 @@ public sealed record IssueCouponResponse(
     int Remaining,
     string? PriorResult,
     string RequestId,
-    int LatencyMs);
+    int LatencyMs,
+    string? Detail = null);
 
 public static class IssueEndpoints
 {
@@ -70,7 +71,7 @@ public static class IssueEndpoints
         }
     }
 
-    private static int StatusFor(IssueResult result) => result switch
+    internal static int StatusFor(IssueResult result) => result switch
     {
         IssueResult.Success => StatusCodes.Status200OK,
 

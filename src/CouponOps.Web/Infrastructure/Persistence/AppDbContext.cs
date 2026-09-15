@@ -90,6 +90,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // 실패 사유 분석 전용. 소진 후 실패가 폭증하므로 필터드로 분리해 두는 편이 이득.
             e.HasIndex(x => new { x.EventId, x.Result, x.RequestedAt })
              .HasFilter("[Result] <> 1");
+
+            // 유저별 발급 횟수 조회 전용.
+            // Redis 경로는 이 카운트를 Redis 에서 하지만, DB 만으로 발급하는 경로(4단계 비교군)는
+            // 이 질의에 잠금을 걸어 한도를 강제한다. 인덱스가 없으면 인덱스 스캔이 되어
+            // 트랜잭션마다 테이블 전체에 범위 잠금이 걸린다 — 경합이 폭발한다.
+            // 성공 행만 담으므로 실패가 많아져도 커지지 않는다.
+            e.HasIndex(x => new { x.EventId, x.UserId })
+             .HasDatabaseName("IX_IssuanceLogs_EventId_UserId_Issued")
+             .HasFilter("[Result] = 1");
         });
 
         b.Entity<OperationLog>(e =>

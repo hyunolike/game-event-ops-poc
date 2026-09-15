@@ -7,7 +7,9 @@ namespace CouponOps.Application;
 
 public sealed record IssueCouponResult(
     IssueResult Result, string? CouponCode, int Remaining, IssueResult? PriorResult,
-    Guid RequestId, int LatencyMs);
+    Guid RequestId, int LatencyMs,
+    /// <summary>실패 원인 식별자. 부하 테스트에서 503 의 내역을 구분하는 데 쓴다.</summary>
+    string? Detail = null);
 
 /// <summary>
 /// 발급 유스케이스. 상태 판단은 전부 Redis 스크립트 안에서 일어나고,

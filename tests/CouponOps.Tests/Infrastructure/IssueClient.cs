@@ -13,18 +13,42 @@ public sealed record IssueCall(HttpStatusCode Status, IssueApiResponse? Body)
     public string Result => Body?.Result ?? $"HTTP {(int)Status}";
 }
 
-public sealed class IssueClient(WebApplicationFactory<Program> app)
+/// <summary>발급 경로. 4단계에서 세 경로를 같은 조건으로 비교한다.</summary>
+public enum IssuePath
+{
+    /// <summary>운영 경로 — Redis Lua.</summary>
+    RedisLua,
+    /// <summary>대조군 — 이벤트 행 배타 락.</summary>
+    DbLock,
+    /// <summary>대조군 — 쿠폰 행 READPAST.</summary>
+    DbSkipLocked,
+}
+
+public sealed class IssueClient(WebApplicationFactory<Program> app, IssuePath path = IssuePath.RedisLua)
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
     private readonly HttpClient _http = app.CreateClient();
 
+    private string Endpoint(long eventId) => path switch
+    {
+        IssuePath.DbLock => $"/api/events/{eventId}/coupons/issue-db",
+        IssuePath.DbSkipLocked => $"/api/events/{eventId}/coupons/issue-db-skiplocked",
+        _ => $"/api/events/{eventId}/coupons/issue",
+    };
+
     public async Task<IssueCall> IssueAsync(long eventId, string userId, Guid? requestId = null)
     {
-        var response = await _http.PostAsJsonAsync(
-            $"/api/events/{eventId}/coupons/issue", new { userId, requestId });
+        var response = await _http.PostAsJsonAsync(Endpoint(eventId), new { userId, requestId });
+        var raw = await response.Content.ReadAsStringAsync();
 
-        var body = await response.Content.ReadFromJsonAsync<IssueApiResponse>(Json);
-        return new IssueCall(response.StatusCode, body);
+        // 본문이 JSON 이 아니면(처리되지 않은 예외 페이지 등) 그 사실이 보이도록 그대로 드러낸다.
+        // 조용히 삼키면 "JSON 파싱 실패" 라는 무의미한 오류만 남는다.
+        if (!raw.StartsWith('{'))
+            throw new InvalidOperationException(
+                $"{Endpoint(eventId)} 가 JSON 이 아닌 응답을 돌려줬습니다 "
+                + $"(status {(int)response.StatusCode}): {raw[..Math.Min(400, raw.Length)]}");
+
+        return new IssueCall(response.StatusCode, JsonSerializer.Deserialize<IssueApiResponse>(raw, Json));
     }
 
     /// <summary>

@@ -68,6 +68,22 @@ DOCKERFILE
   rm -rf "$build_dir"
 fi
 
+# ── 4. k6 (부하 테스트) ─────────────────────────────────────────────────────
+# 공식 배포 채널(dl.k6.io)은 이 환경의 네트워크 정책이 차단한다. GitHub 릴리스에서 받는다.
+K6_VERSION=v0.54.0
+if command -v k6 >/dev/null 2>&1; then
+  log "k6 이미 설치됨: $(k6 version | head -1)"
+else
+  log "k6 설치 중 ($K6_VERSION)"
+  tmp=$(mktemp -d)
+  curl -sSL -o "$tmp/k6.tar.gz" \
+    "https://github.com/grafana/k6/releases/download/$K6_VERSION/k6-$K6_VERSION-linux-amd64.tar.gz"
+  tar xzf "$tmp/k6.tar.gz" -C "$tmp"
+  install -m755 "$tmp/k6-$K6_VERSION-linux-amd64/k6" /usr/local/bin/k6
+  rm -rf "$tmp"
+  log "k6 설치 완료: $(k6 version | head -1)"
+fi
+
 log "환경 준비 완료. 통합 테스트 실행 전 다음 환경변수가 필요하다:"
 log "  export TESTCONTAINERS_RYUK_DISABLED=true   # ryuk 이미지는 Docker Hub 에 있어 받을 수 없다"
 log "  export COUPONOPS_TEST_MSSQL_IMAGE=$MSSQL_IMAGE"
