@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A5545CBB-2DB9-44DF-B874-25E01DE0DF28}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CouponOps.Web", "src\CouponOps.Web\CouponOps.Web.csproj", "{2A4F9128-C267-4744-BF86-50A44AFEDADC}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{DA259C61-E813-4A65-B9A3-0DF92B431BC4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CouponOps.Tests", "tests\CouponOps.Tests\CouponOps.Tests.csproj", "{80848810-54FC-44DA-9784-249584C9BCF7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2A4F9128-C267-4744-BF86-50A44AFEDADC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A4F9128-C267-4744-BF86-50A44AFEDADC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A4F9128-C267-4744-BF86-50A44AFEDADC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A4F9128-C267-4744-BF86-50A44AFEDADC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{80848810-54FC-44DA-9784-249584C9BCF7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{80848810-54FC-44DA-9784-249584C9BCF7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{80848810-54FC-44DA-9784-249584C9BCF7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{80848810-54FC-44DA-9784-249584C9BCF7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{2A4F9128-C267-4744-BF86-50A44AFEDADC} = {A5545CBB-2DB9-44DF-B874-25E01DE0DF28}
+		{80848810-54FC-44DA-9784-249584C9BCF7} = {DA259C61-E813-4A65-B9A3-0DF92B431BC4}
+	EndGlobalSection
+EndGlobal

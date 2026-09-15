@@ -1,0 +1,107 @@
+@page
+@model CouponOps.Pages.Issuances.IndexModel
+@{
+    ViewData["Title"] = "발급 이력";
+    var results = new[] { ("", "전체"), ("Success", "성공"), ("SoldOut", "수량 소진"), ("OutOfPeriod", "기간 외"),
+                          ("LimitExceeded", "한도 초과"), ("DuplicateRequest", "중복 요청"), ("Suspended", "중단됨"), ("SystemError", "시스템 오류") };
+}
+
+<h1>발급 이력</h1>
+<p class="sub">성공과 실패를 모두 남깁니다. Redis 에서 비동기로 적재되므로 방금 발급된 건은 잠시 뒤 나타납니다.</p>
+
+<div class="card">
+    <form method="get" class="filters">
+        <div>
+            <label for="eventId">이벤트</label>
+            <select id="eventId" name="eventId">
+                <option value="">전체</option>
+                @foreach (var (id, name) in Model.EventOptions)
+                {
+                    <option value="@id" selected="@(Model.EventId == id)">@name</option>
+                }
+            </select>
+        </div>
+        <div>
+            <label for="userId">유저 ID <span class="hint">정확 일치</span></label>
+            <input id="userId" name="userId" value="@Model.UserId" />
+        </div>
+        <div>
+            <label for="from">시작 <span class="hint">KST</span></label>
+            <input id="from" name="from" type="datetime-local" value="@(Model.From?.ToString("yyyy-MM-ddTHH:mm"))" />
+        </div>
+        <div>
+            <label for="to">종료 <span class="hint">KST</span></label>
+            <input id="to" name="to" type="datetime-local" value="@(Model.To?.ToString("yyyy-MM-ddTHH:mm"))" />
+        </div>
+        <div>
+            <label for="result">결과</label>
+            <select id="result" name="result">
+                @foreach (var (value, text) in results)
+                {
+                    <option value="@value" selected="@(Model.Result == value)">@text</option>
+                }
+            </select>
+        </div>
+        <button type="submit">조회</button>
+        <a class="btn" href="/Issuances">초기화</a>
+    </form>
+</div>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+        <tr>
+            <th>요청 시각 (KST)</th>
+            <th>유저</th>
+            <th>결과</th>
+            <th>쿠폰 코드</th>
+            <th class="num">적재 지연</th>
+            <th>경로</th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var row in Model.Rows)
+        {
+            <tr>
+                <td class="mono nowrap">@KoreaTime.Format(row.RequestedAt)</td>
+                <td class="mono">@row.UserId</td>
+                <td><span class="badge @BadgeClass(row.Result)">@ResultText(row.Result)</span></td>
+                <td class="mono">@(row.CouponCode ?? "-")</td>
+                <td class="num mono">@row.PersistenceLagMs ms</td>
+                <td class="mono">@row.IssuePath</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    @if (Model.Rows.Count == 0)
+    {
+        <div class="empty">조건에 맞는 이력이 없습니다.</div>
+    }
+</div>
+
+<div class="pager">
+    <span class="info">총 @Model.TotalCount.ToString("N0")건 · @Model.P / @Model.TotalPages 페이지</span>
+    @if (Model.P > 1) { <a href="@Model.PageUrl(Model.P - 1)">← 이전</a> } else { <span class="disabled">← 이전</span> }
+    @if (Model.P < Model.TotalPages) { <a href="@Model.PageUrl(Model.P + 1)">다음 →</a> } else { <span class="disabled">다음 →</span> }
+</div>
+
+@functions {
+    static string BadgeClass(IssueResult r) => r switch
+    {
+        IssueResult.Success => "success",
+        IssueResult.SystemError => "error",
+        _ => "fail",
+    };
+
+    static string ResultText(IssueResult r) => r switch
+    {
+        IssueResult.Success => "성공",
+        IssueResult.SoldOut => "수량 소진",
+        IssueResult.OutOfPeriod => "기간 외",
+        IssueResult.LimitExceeded => "한도 초과",
+        IssueResult.DuplicateRequest => "중복 요청",
+        IssueResult.Suspended => "중단됨",
+        IssueResult.SystemError => "시스템 오류",
+        _ => r.ToString(),
+    };
+}

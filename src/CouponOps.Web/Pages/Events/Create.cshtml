@@ -1,0 +1,57 @@
+@page
+@model CouponOps.Pages.Events.CreateModel
+@{
+    ViewData["Title"] = "이벤트 생성";
+}
+
+<h1>새 이벤트</h1>
+<p class="sub">저장하면 쿠폰 코드를 사전 생성하고 Redis 에 적재합니다 (수량에 따라 시간이 걸립니다).</p>
+
+@if (Model.Errors.Count > 0)
+{
+    <div class="alert error">
+        입력을 확인해 주세요.
+        <ul>@foreach (var e in Model.Errors) { <li>@e</li> }</ul>
+    </div>
+}
+
+<form method="post" class="card">
+    <div class="form-grid">
+        <div>
+            <label for="code">이벤트 코드 <span class="hint">외부 노출 식별자, 생성 후 변경 불가</span></label>
+            <input id="code" name="Code" value="@Model.Code" maxlength="64" required />
+        </div>
+        <div>
+            <label for="name">이벤트 이름</label>
+            <input id="name" name="Name" value="@Model.Name" maxlength="200" required />
+        </div>
+        <div>
+            <label for="startsAt">시작 시각 <span class="hint">KST</span></label>
+            <input id="startsAt" name="StartsAt" type="datetime-local" value="@Model.StartsAt.ToString("yyyy-MM-ddTHH:mm")" required />
+        </div>
+        <div>
+            <label for="endsAt">종료 시각 <span class="hint">KST</span></label>
+            <input id="endsAt" name="EndsAt" type="datetime-local" value="@Model.EndsAt.ToString("yyyy-MM-ddTHH:mm")" required />
+        </div>
+        <div>
+            <label for="qty">총 발급 수량</label>
+            <input id="qty" name="TotalQuantity" type="number" min="1" max="@CouponOps.Pages.Events.CreateModel.MaxQuantity" value="@Model.TotalQuantity" required />
+        </div>
+        <div>
+            <label for="limit">유저당 발급 한도</label>
+            <input id="limit" name="PerUserLimit" type="number" min="1" value="@Model.PerUserLimit" required />
+        </div>
+        <div>
+            <label for="mode">코드 생성 방식</label>
+            <select id="mode" name="IssuanceMode">
+                <option value="PreGenerated" selected="@(Model.IssuanceMode == IssuanceMode.PreGenerated)">사전 생성 — 코드를 미리 만들어 둠</option>
+                <option value="Derived" selected="@(Model.IssuanceMode == IssuanceMode.Derived)">발급 시 파생 — 시퀀스에서 생성</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="actions">
+        <button class="primary" type="submit">생성</button>
+        <a class="btn" href="/Events">취소</a>
+    </div>
+</form>

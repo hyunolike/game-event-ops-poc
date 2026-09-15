@@ -1,0 +1,43 @@
+@inject ICurrentActor Actor
+@{
+    string Nav(string path) =>
+        (ViewContext.HttpContext.Request.Path.StartsWithSegments(path) ? "active" : "");
+}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] · 쿠폰 운영툴</title>
+    <link rel="stylesheet" href="~/site.css" asp-append-version="true" />
+</head>
+<body>
+@if (User.Identity?.IsAuthenticated == true)
+{
+    <header class="top">
+        <span class="brand">쿠폰 운영툴</span>
+        <nav>
+            <a class="@Nav("/Events")" href="/Events">이벤트</a>
+            <a class="@Nav("/Issuances")" href="/Issuances">발급 이력</a>
+            <a class="@Nav("/OperationLogs")" href="/OperationLogs">운영 로그</a>
+        </nav>
+        <div class="who">
+            <span>
+                @Actor.LoginId
+                <strong>(@(Actor.CanEdit ? "편집" : "읽기전용"))</strong>
+            </span>
+            @* action 을 직접 쓰면 FormTagHelper 가 안티포저리 토큰을 넣지 않는다.
+               (태그 헬퍼는 자신이 action 을 생성한 폼에만 토큰을 추가한다) 명시적으로 넣는다. *@
+            <form method="post" asp-page="/Account/Logout">
+                @Html.AntiForgeryToken()
+                <button type="submit">로그아웃</button>
+            </form>
+        </div>
+    </header>
+}
+<main>
+    @RenderBody()
+</main>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

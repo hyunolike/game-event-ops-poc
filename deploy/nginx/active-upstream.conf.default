@@ -1,0 +1,6 @@
+# 기본 업스트림. docker compose 가 기동하는 앱은 blue 다.
+# proxy 컨테이너가 기동할 때 이 파일을 active-upstream.conf 로 복사하고,
+# 배포 스크립트는 그 사본만 바꾼다 — 생성물은 커밋하지 않는다.
+upstream couponops_active {
+    server couponops-app-blue:8080;
+}

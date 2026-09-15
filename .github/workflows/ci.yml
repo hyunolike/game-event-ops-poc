@@ -1,0 +1,149 @@
+name: CI
+
+# PR 과 (main 이 아닌) 브랜치 푸시 모두에서 돈다.
+# 브랜치 푸시에서도 돌리는 이유: PR 을 열기 전에 깨진 것을 알아채는 편이 싸다.
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
+jobs:
+  build-test:
+    name: 빌드 · 테스트 · 커버리지
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # NuGet 캐시. 복원은 매 실행 반복되는 순수 다운로드라 캐시 효과가 가장 크다.
+      - name: NuGet 캐시
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '.config/dotnet-tools.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: 복원
+        run: dotnet restore
+
+      - name: 빌드
+        run: dotnet build --no-restore -c Release
+
+      # 통합 테스트는 Testcontainers 로 실제 MSSQL·Redis 를 띄운다.
+      # GitHub 러너에는 Docker 가 있으므로 별도 service 컨테이너 설정이 필요 없고,
+      # 테스트가 자기 의존성의 수명을 스스로 관리한다.
+      - name: 테스트 (커버리지 수집)
+        run: |
+          dotnet test --no-build -c Release \
+            --collect:"XPlat Code Coverage" \
+            --logger "trx;LogFileName=test-results.trx" \
+            --results-directory TestResults
+
+      - name: 커버리지 리포트
+        if: always()
+        run: |
+          dotnet tool install -g dotnet-reportgenerator-globaltool --version 5.3.11
+          reportgenerator \
+            -reports:'TestResults/**/coverage.cobertura.xml' \
+            -targetdir:'TestResults/report' \
+            -reporttypes:'Html;MarkdownSummaryGithub;TextSummary'
+
+      # 커버리지를 아티팩트로만 남기면 아무도 안 본다. 실행 요약에 바로 띄운다.
+      - name: 커버리지를 실행 요약에 표시
+        if: always()
+        run: cat TestResults/report/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 테스트·커버리지 아티팩트 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            TestResults/**/*.trx
+            TestResults/report/**
+          retention-days: 14
+
+  deploy-smoke:
+    name: 무중단 배포 · 롤백 시연
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # 테스트가 깨진 코드를 배포 시연할 이유가 없다.
+    needs: build-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 이미지 빌드
+        run: docker build -t couponops:ci .
+
+      - name: 전체 기동 (docker compose)
+        env:
+          APP_IMAGE: couponops:ci
+        run: |
+          docker compose up -d --wait --wait-timeout 300
+          docker compose ps
+
+      - name: 헬스체크 확인
+        run: |
+          curl -fsS http://localhost:8080/health/ready | tee /tmp/health.json
+          grep -q '"status":"healthy"' /tmp/health.json
+
+      # 배포하는 동안 프록시로 계속 요청을 보내고, 실패가 한 건이라도 있으면 실패 처리한다.
+      # "무중단" 을 주장하려면 그것을 측정해야 한다.
+      - name: 무중단 배포 (blue → green)
+        run: |
+          : > /tmp/codes
+          ( while [ ! -f /tmp/stop ]; do
+              curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 \
+                http://localhost:8080/Account/Login >> /tmp/codes
+              sleep 0.02
+            done ) &
+
+          sleep 2
+          APP_IMAGE=couponops:ci bash deploy/deploy.sh couponops:ci
+          sleep 2
+          touch /tmp/stop; sleep 1
+
+          TOTAL=$(wc -l < /tmp/codes)
+          FAILED=$(grep -vc '^200$' /tmp/codes || true)
+          echo "배포 중 요청 $TOTAL건, 실패 $FAILED건" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$FAILED" -eq 0
+
+      # 준비되지 않은 인스턴스가 배포되면 전환하지 않고 되돌아와야 한다.
+      - name: 롤백 경로 확인 (실패 주입)
+        run: |
+          # 활성 업스트림은 프록시 컨테이너 안에 있다(호스트에 두지 않는 이유는 compose 주석 참조).
+          active() { docker exec couponops-proxy cat /etc/nginx/conf.d/active-upstream.conf \
+                       | grep -o 'couponops-app-[a-z]*' | head -1; }
+
+          BEFORE=$(active)
+
+          if bash deploy/deploy.sh couponops:ci --simulate-failure; then
+            echo "준비되지 않은 인스턴스로 전환됐다 — 배포 게이트가 동작하지 않는다" >&2
+            exit 1
+          fi
+
+          AFTER=$(active)
+          echo "활성 업스트림: $BEFORE → $AFTER"
+          test "$BEFORE" = "$AFTER"
+
+          curl -fsS http://localhost:8080/health/ready > /dev/null
+          echo "롤백 확인: 트래픽이 $AFTER 에 유지됨" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 로그 수집 (실패 시)
+        if: failure()
+        run: docker compose logs --tail 100
+
+      - name: 정리
+        if: always()
+        run: docker compose down -v

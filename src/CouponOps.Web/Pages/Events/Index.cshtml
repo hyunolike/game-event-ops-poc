@@ -1,0 +1,88 @@
+@page
+@model CouponOps.Pages.Events.IndexModel
+@inject ICurrentActor Actor
+@{
+    ViewData["Title"] = "이벤트";
+    var statuses = new[] { ("", "전체"), ("Scheduled", "예정"), ("Active", "진행중"), ("Ended", "종료"), ("Suspended", "중단") };
+}
+
+<h1>이벤트</h1>
+<p class="sub">소진율은 Redis 의 잔여 수량 기준입니다 (발급의 원천).</p>
+
+<div class="card">
+    <form method="get" class="filters">
+        <div>
+            <label for="status">상태</label>
+            <select id="status" name="Status">
+                @foreach (var (value, text) in statuses)
+                {
+                    <option value="@value" selected="@(Model.Status == value || (string.IsNullOrEmpty(Model.Status) && value == ""))">@text</option>
+                }
+            </select>
+        </div>
+        <div class="grow">
+            <label for="keyword">검색 <span class="hint">이름 또는 코드</span></label>
+            <input id="keyword" name="Keyword" value="@Model.Keyword" />
+        </div>
+        <button type="submit">조회</button>
+        @if (Actor.CanEdit)
+        {
+            <a class="btn primary" href="/Events/Create">새 이벤트</a>
+        }
+    </form>
+</div>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+        <tr>
+            <th>상태</th>
+            <th>이벤트</th>
+            <th>기간 (KST)</th>
+            <th class="num">수량</th>
+            <th>소진율</th>
+            <th class="num">잔여</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var row in Model.Rows)
+        {
+            <tr>
+                <td><span class="badge @row.Status.ToString().ToLowerInvariant()">@StatusText(row.Status)</span></td>
+                <td>
+                    <a href="/Events/Details?id=@row.Event.Id"><strong>@row.Event.Name</strong></a><br />
+                    <span class="mono" style="color:var(--muted)">@row.Event.Code</span>
+                </td>
+                <td class="mono">
+                    @KoreaTime.FormatShort(row.Event.StartsAt) → @KoreaTime.FormatShort(row.Event.EndsAt)
+                </td>
+                <td class="num">@row.Event.TotalQuantity.ToString("N0")</td>
+                <td>
+                    <div class="meter">
+                        <div class="track"><div class="fill @(row.Rate >= 100 ? "full" : "")" style="width:@(Math.Min(100, row.Rate).ToString(System.Globalization.CultureInfo.InvariantCulture))%"></div></div>
+                        <span class="pct">@row.Rate.ToString("0.#")%</span>
+                    </div>
+                </td>
+                <td class="num">@row.Remaining.ToString("N0")</td>
+                <td><a href="/Events/Details?id=@row.Event.Id">상세</a></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    @if (Model.Rows.Count == 0)
+    {
+        <div class="empty">조건에 맞는 이벤트가 없습니다.</div>
+    }
+</div>
+
+@functions {
+    static string StatusText(EventStatus s) => s switch
+    {
+        EventStatus.Scheduled => "예정",
+        EventStatus.Active => "진행중",
+        EventStatus.Ended => "종료",
+        EventStatus.Suspended => "중단",
+        _ => s.ToString(),
+    };
+}

@@ -1,0 +1,113 @@
+@page
+@model CouponOps.Pages.OperationLogs.IndexModel
+@{
+    ViewData["Title"] = "운영 로그";
+    var actions = new[] { ("", "전체"), ("EventCreated", "이벤트 생성"), ("EventUpdated", "이벤트 수정"),
+                          ("EventSuspended", "강제 중단"), ("EventResumed", "재개"),
+                          ("CouponPoolWarmed", "코드 준비"), ("CouponRevoked", "쿠폰 회수"), ("AdminSignedIn", "로그인") };
+}
+
+<h1>운영 로그</h1>
+<p class="sub">운영자의 모든 변경 액션과 변경 전/후 값이 남습니다. 삭제되지 않습니다.</p>
+
+<div class="card">
+    <form method="get" class="filters">
+        <div>
+            <label for="actor">운영자</label>
+            <input id="actor" name="actor" value="@Model.Actor" placeholder="admin" />
+        </div>
+        <div>
+            <label for="action">액션</label>
+            <select id="action" name="action">
+                @foreach (var (value, text) in actions)
+                {
+                    <option value="@value" selected="@(Model.Action == value)">@text</option>
+                }
+            </select>
+        </div>
+        <div>
+            <label for="targetId">대상 ID</label>
+            <input id="targetId" name="targetId" value="@Model.TargetId" />
+        </div>
+        <div>
+            <label for="from">시작 <span class="hint">KST</span></label>
+            <input id="from" name="from" type="datetime-local" value="@(Model.From?.ToString("yyyy-MM-ddTHH:mm"))" />
+        </div>
+        <div>
+            <label for="to">종료 <span class="hint">KST</span></label>
+            <input id="to" name="to" type="datetime-local" value="@(Model.To?.ToString("yyyy-MM-ddTHH:mm"))" />
+        </div>
+        <button type="submit">조회</button>
+        <a class="btn" href="/OperationLogs">초기화</a>
+    </form>
+</div>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+        <tr>
+            <th>시각 (KST)</th>
+            <th>운영자</th>
+            <th>액션</th>
+            <th>대상</th>
+            <th>변경 필드</th>
+            <th>사유</th>
+            <th>전/후</th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var row in Model.Rows)
+        {
+            <tr>
+                <td class="mono nowrap">@KoreaTime.Format(row.OccurredAt)</td>
+                <td>@row.ActorLoginId<br /><span class="mono" style="color:var(--muted);font-size:11.5px">@(row.ClientIp ?? "-")</span></td>
+                <td class="nowrap">@ActionText(row.Action)</td>
+                <td class="mono nowrap">@row.TargetType #@row.TargetId</td>
+                <td class="mono">@(row.ChangedFields ?? "-")</td>
+                <td>@(row.Reason ?? "-")</td>
+                <td>
+                    @if (row.BeforeJson is not null || row.AfterJson is not null)
+                    {
+                        <details class="json">
+                            <summary>보기</summary>
+                            @if (row.BeforeJson is not null)
+                            {
+                                <pre>전: @row.BeforeJson</pre>
+                            }
+                            @if (row.AfterJson is not null)
+                            {
+                                <pre>후: @row.AfterJson</pre>
+                            }
+                        </details>
+                    }
+                    else { <span style="color:var(--muted)">-</span> }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    @if (Model.Rows.Count == 0)
+    {
+        <div class="empty">조건에 맞는 로그가 없습니다.</div>
+    }
+</div>
+
+<div class="pager">
+    <span class="info">총 @Model.TotalCount.ToString("N0")건 · @Model.P / @Model.TotalPages 페이지</span>
+    @if (Model.P > 1) { <a href="@Model.PageUrl(Model.P - 1)">← 이전</a> } else { <span class="disabled">← 이전</span> }
+    @if (Model.P < Model.TotalPages) { <a href="@Model.PageUrl(Model.P + 1)">다음 →</a> } else { <span class="disabled">다음 →</span> }
+</div>
+
+@functions {
+    static string ActionText(OperationAction a) => a switch
+    {
+        OperationAction.EventCreated => "이벤트 생성",
+        OperationAction.EventUpdated => "이벤트 수정",
+        OperationAction.EventSuspended => "강제 중단",
+        OperationAction.EventResumed => "재개",
+        OperationAction.CouponPoolWarmed => "코드 준비",
+        OperationAction.CouponRevoked => "쿠폰 회수",
+        OperationAction.AdminSignedIn => "로그인",
+        _ => a.ToString(),
+    };
+}
