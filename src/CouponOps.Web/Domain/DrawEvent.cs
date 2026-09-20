@@ -36,7 +36,11 @@ public class DrawEvent
 
     public SoldOutPolicy SoldOutPolicy { get; private set; }
 
-    /// <summary>천장. 0 = 사용 안 함. 꽝이 이 횟수만큼 연속되면 <see cref="PityPrizeId"/> 를 확정 지급한다.</summary>
+    /// <summary>
+    /// 천장. 0 = 사용 안 함.
+    /// <b>이 횟수 안에 반드시 당첨된다</b> — 꽝이 N−1회 연속이면 N번째 추첨은
+    /// <see cref="PityPrizeId"/> 로 확정된다. "10회 천장" 이 11번째를 뜻하면 유저가 속았다고 느낀다.
+    /// </summary>
     public int PityThreshold { get; private set; }
     public long? PityPrizeId { get; private set; }
 

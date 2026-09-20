@@ -1,0 +1,273 @@
+@page
+@model CouponOps.Pages.Draws.DetailsModel
+@inject ICurrentActor Actor
+@{
+    ViewData["Title"] = Model.Event!.Name;
+    var ev = Model.Event!;
+    var dev = Model.Deviation!;
+}
+
+<h1>@ev.Name <span class="badge @Model.Status.ToString().ToLowerInvariant()">@StatusText(Model.Status)</span></h1>
+<p class="sub mono">@ev.Code</p>
+
+@if (TempData["Flash"] is string flash)
+{
+    <div class="alert success">@flash</div>
+}
+@if (Model.Error is not null)
+{
+    <div class="alert error">@Model.Error</div>
+}
+@if (ev.SuspendedAt is not null)
+{
+    <div class="alert danger">
+        <strong>중단됨</strong> — @KoreaTime.Format(ev.SuspendedAt) · 사유: @ev.SuspendReason
+    </div>
+}
+
+<div class="card">
+    <div class="stats">
+        <div class="stat"><span class="label">기간 (KST)</span><span class="value mono">@KoreaTime.FormatShort(ev.StartsAt) → @KoreaTime.FormatShort(ev.EndsAt)</span></div>
+        <div class="stat"><span class="label">일일 횟수</span><span class="value">@(ev.DailyDrawLimit == 0 ? "무제한" : $"{ev.DailyDrawLimit}회")</span></div>
+        <div class="stat"><span class="label">리셋 시각</span><span class="value mono">@ev.DailyResetAt.ToString(@"hh\:mm") KST</span></div>
+        <div class="stat"><span class="label">티켓</span><span class="value">@(ev.TicketItemId is null ? "무료" : $"아이템 {ev.TicketItemId} × {ev.TicketCost}")</span></div>
+        <div class="stat"><span class="label">천장</span><span class="value">@(ev.PityThreshold == 0 ? "없음" : $"{ev.PityThreshold}회")</span></div>
+        <div class="stat"><span class="label">누적 추첨</span><span class="value" id="total-draws">@dev.TotalDraws.ToString("N0")</span></div>
+        <div class="stat"><span class="label">DB 적재 대기</span><span class="value" id="pending">@Math.Max(0, dev.TotalDraws - Model.PersistedLogs).ToString("N0")</span></div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>경품별 현황 <span class="hint">3초마다 갱신 · 기대값 대비 편차</span></h2>
+
+    <div id="chi-alert" class="alert warn" style="display:@(dev.Alarming ? "block" : "none")">
+        관측 분포가 설정한 가중치와 유의하게 다릅니다
+        (χ² = <span id="chi-value">@dev.ChiSquare?.ToString("F2")</span> &gt; @dev.Critical.ToString("F2")).
+        가중치 설정 오류 · 워밍업 불일치 · 어뷰징 중 하나입니다.
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th class="num">슬롯</th>
+                <th>경품</th>
+                <th class="num">확률</th>
+                <th class="num">당첨</th>
+                <th class="num">기대값</th>
+                <th class="num">편차</th>
+                <th class="num">잔여 재고</th>
+            </tr>
+            </thead>
+            <tbody id="prize-rows">
+            @foreach (var row in dev.Rows)
+            {
+                <tr>
+                    <td class="num mono">@row.SlotIndex</td>
+                    <td>
+                        @row.Name
+                        @if (row.IsJackpot) { <span class="badge warn">잭팟</span> }
+                    </td>
+                    <td class="num mono">@row.Percent.ToString("F2")%</td>
+                    <td class="num mono">@row.Observed.ToString("N0")</td>
+                    <td class="num mono">@row.Expected.ToString("N1")</td>
+                    <td class="num mono">@(row.Deviation is null ? "-" : row.Deviation.Value.ToString("+0.0;-0.0;0") + "%")</td>
+                    <td class="num mono">@(row.Stock < 0 ? "∞" : row.Stock.ToString("N0"))</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    @if (dev.TotalDraws < CouponOps.Application.DrawDeviation.MinimumSample)
+    {
+        <p class="hint">
+            표본이 @CouponOps.Application.DrawDeviation.MinimumSample 건 미만이라 적합도 검정을 하지 않습니다 —
+            이 구간의 편차는 의미를 갖지 못합니다.
+        </p>
+    }
+
+    <p class="actions">
+        <a class="btn" href="/Draws/Logs?drawEventId=@ev.Id">추첨 이력 보기</a>
+        <a class="btn" href="/Odds?code=@ev.Code" target="_blank">공시 페이지 열기</a>
+    </p>
+</div>
+
+<div class="card">
+    <h2>확률 버전 <span class="hint">append-only — 과거 추첨은 자기가 쓴 버전을 계속 가리킵니다</span></h2>
+    <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th class="num">버전</th>
+                <th class="num">가중치 합</th>
+                <th>활성 구간 (KST)</th>
+                <th>사유</th>
+                <th>스냅샷 해시</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var v in Model.Versions)
+            {
+                <tr>
+                    <td class="num mono">
+                        @v.Version
+                        @if (v.DeactivatedAt is null) { <span class="badge ok">활성</span> }
+                    </td>
+                    <td class="num mono">@v.TotalWeight.ToString("N0")</td>
+                    <td class="mono">@KoreaTime.FormatShort(v.ActivatedAt) → @(v.DeactivatedAt is null ? "현재" : KoreaTime.FormatShort(v.DeactivatedAt.Value))</td>
+                    <td>@v.ChangeReason</td>
+                    <td class="mono">@v.SnapshotHash[..16]</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (Actor.CanEdit)
+{
+    <div class="card">
+        <h2>티켓 지급</h2>
+        <p class="sub">티켓은 곧 추첨 기회이고, 추첨 기회는 곧 재화입니다. 지급은 운영 로그에 남습니다.</p>
+        <form method="post" asp-page-handler="Grant" class="filters">
+            <div class="grow">
+                <label for="grantUser">유저 ID</label>
+                <input id="grantUser" name="GrantUserId" value="@Model.GrantUserId" maxlength="64" required />
+            </div>
+            <div>
+                <label for="grantAmount">수량</label>
+                <input id="grantAmount" name="GrantAmount" type="number" min="1" value="@Model.GrantAmount" required />
+            </div>
+            <button type="submit">지급</button>
+        </form>
+    </div>
+
+    <div class="card danger-zone">
+        <h2>강제 중단</h2>
+        <p class="sub">
+            <strong>되돌릴 수 없습니다.</strong> 이미 지급된 아이템은 회수되지 않습니다.
+            미수령 우편만 별도로 회수할 수 있습니다.
+        </p>
+
+        @if (ev.SuspendedAt is null)
+        {
+            <form method="post" asp-page-handler="Suspend"
+                  onsubmit="return confirm('정말 중단하시겠습니까? 신규 추첨이 즉시 차단됩니다.');">
+                <div class="form-grid">
+                    <div>
+                        <label for="confirmCode">확인 — 이벤트 코드를 입력하세요 <span class="hint mono">@ev.Code</span></label>
+                        <input id="confirmCode" name="ConfirmCode" autocomplete="off" required />
+                    </div>
+                    <div>
+                        <label for="reason">중단 사유 <span class="hint">필수 · 운영 로그에 남습니다</span></label>
+                        <input id="reason" name="Reason" maxlength="500" required />
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="danger" type="submit">강제 중단</button>
+                </div>
+            </form>
+        }
+        else
+        {
+            <form method="post" asp-page-handler="Resume">
+                <div class="form-grid">
+                    <div>
+                        <label for="resumeReason">재개 사유</label>
+                        <input id="resumeReason" name="Reason" maxlength="500" />
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="primary" type="submit">재개</button>
+                </div>
+            </form>
+        }
+    </div>
+}
+
+<div class="card">
+    <h2>최근 운영 로그</h2>
+    <div class="table-wrap">
+        <table>
+            <thead>
+            <tr><th>시각 (KST)</th><th>수행자</th><th>액션</th><th>변경 필드</th><th>사유</th></tr>
+            </thead>
+            <tbody>
+            @foreach (var op in Model.RecentOperations)
+            {
+                <tr>
+                    <td class="mono nowrap">@KoreaTime.Format(op.OccurredAt)</td>
+                    <td>@op.ActorLoginId</td>
+                    <td>@op.Action</td>
+                    <td class="mono">@op.ChangedFields</td>
+                    <td>@op.Reason</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        @if (Model.RecentOperations.Count == 0)
+        {
+            <div class="empty">기록된 운영 액션이 없습니다.</div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+// 3초 폴링. WebSocket 을 쓰지 않는 이유는 쿠폰 상세 화면과 같다 —
+// 보는 사람은 운영자 몇 명이고, 소켓은 연결 관리·재연결·스케일아웃 백플레인 비용을 달고 온다.
+// 탭이 백그라운드면 멈춘다. 운영툴은 열어둔 채 방치되기 때문이다.
+(function () {
+    const id = @ev.Id;
+    const fmt = n => Number(n).toLocaleString('ko-KR');
+
+    async function tick() {
+        if (document.hidden) return;
+        try {
+            const res = await fetch(`/api/draws/${id}/status`, { headers: { 'Accept': 'application/json' } });
+            if (!res.ok) return;
+            const s = await res.json();
+
+            document.getElementById('total-draws').textContent = fmt(s.totalDraws);
+            document.getElementById('pending').textContent = fmt(s.pendingPersistence);
+
+            const alert = document.getElementById('chi-alert');
+            alert.style.display = s.alarming ? 'block' : 'none';
+            if (s.chiSquare !== null) {
+                document.getElementById('chi-value').textContent = s.chiSquare.toFixed(2);
+            }
+
+            document.getElementById('prize-rows').innerHTML = s.rows.map(r => `
+                <tr>
+                    <td class="num mono">${r.slotIndex}</td>
+                    <td>${escapeHtml(r.name)}${r.isJackpot ? ' <span class="badge warn">잭팟</span>' : ''}</td>
+                    <td class="num mono">${r.percent}</td>
+                    <td class="num mono">${fmt(r.observed)}</td>
+                    <td class="num mono">${Number(r.expected).toFixed(1)}</td>
+                    <td class="num mono">${r.deviation}</td>
+                    <td class="num mono">${r.stock}</td>
+                </tr>`).join('');
+        } catch { /* 폴링 실패는 조용히 넘긴다 — 다음 주기에 다시 시도한다 */ }
+    }
+
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    }
+
+    setInterval(tick, 3000);
+})();
+</script>
+}
+
+@functions {
+    static string StatusText(EventStatus s) => s switch
+    {
+        EventStatus.Scheduled => "예정",
+        EventStatus.Active => "진행중",
+        EventStatus.Ended => "종료",
+        EventStatus.Suspended => "중단",
+        _ => s.ToString(),
+    };
+}

@@ -8,17 +8,18 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>@ViewData["Title"] · 쿠폰 운영툴</title>
+    <title>@ViewData["Title"] · 이벤트 운영툴</title>
     <link rel="stylesheet" href="~/site.css" asp-append-version="true" />
 </head>
 <body>
 @if (User.Identity?.IsAuthenticated == true)
 {
     <header class="top">
-        <span class="brand">쿠폰 운영툴</span>
+        <span class="brand">이벤트 운영툴</span>
         <nav>
-            <a class="@Nav("/Events")" href="/Events">이벤트</a>
+            <a class="@Nav("/Events")" href="/Events">쿠폰 이벤트</a>
             <a class="@Nav("/Issuances")" href="/Issuances">발급 이력</a>
+            <a class="@Nav("/Draws")" href="/Draws">룰렛</a>
             <a class="@Nav("/OperationLogs")" href="/OperationLogs">운영 로그</a>
         </nav>
         <div class="who">

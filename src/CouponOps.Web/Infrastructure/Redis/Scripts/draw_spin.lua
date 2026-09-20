@@ -152,14 +152,18 @@ end
 
 local chosen, roll, pityApplied
 
--- 천장: 꽝이 연속 임계치만큼 쌓였으면 난수를 쓰지 않고 지급 슬롯을 확정한다.
+-- 천장: 난수를 쓰지 않고 지급 슬롯을 확정한다.
 -- 이력에 pityApplied 로 남겨야 재현 시 같은 분기를 탈 수 있다(roll 은 -1).
+--
+-- 경계에 주의한다. "천장 10회" 는 실무에서 <10회 안에 반드시 당첨된다> 는 뜻이므로,
+-- 확정이 걸리는 것은 꽝이 10번 쌓인 다음(11번째)이 아니라 10번째 추첨 자체다.
+-- 그래서 비교 대상은 pityCount 가 아니라 "이번 추첨까지 포함한 횟수" 인 pityCount + 1 이다.
 local pityCount = 0
 if pityThresh > 0 then
   pityCount = tonumber(redis.call('HGET', KEYS[5], userId) or '0')
 end
 
-if pityThresh > 0 and pityCount >= pityThresh and pityPrizeId > 0 then
+if pityThresh > 0 and pityCount + 1 >= pityThresh and pityPrizeId > 0 then
   chosen = findByPrize(pityPrizeId)
   if not chosen then return fail(R_SYSTEM) end
   roll = -1

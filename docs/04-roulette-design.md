@@ -135,7 +135,10 @@ public class DrawEvent
     /// <summary>재고 소진 정책. 결정 2 참조.</summary>
     public SoldOutPolicy SoldOutPolicy { get; private set; }
 
-    /// <summary>천장. 0 = 사용 안 함. N회 연속 미당첨 시 PityPrizeId 확정 지급.</summary>
+    /// <summary>
+    /// 천장. 0 = 사용 안 함. <b>N회 안에 반드시 당첨</b> — N번째 추첨이 확정이다.
+    /// (N회 꽝 뒤 N+1번째로 구현하면 "10회 천장" 이 11번째가 되어 유저가 속았다고 느낀다.)
+    /// </summary>
     public int PityThreshold { get; private set; }
     public long? PityPrizeId { get; private set; }
 

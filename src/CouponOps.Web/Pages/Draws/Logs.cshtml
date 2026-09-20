@@ -1,0 +1,154 @@
+@page
+@model CouponOps.Pages.Draws.LogsModel
+@{
+    ViewData["Title"] = "추첨 이력";
+    var results = new (DrawResult? Value, string Text)[]
+    {
+        (null, "전체"),
+        (DrawResult.Won, "당첨"),
+        (DrawResult.OutOfPeriod, "기간 외"),
+        (DrawResult.DailyLimitExceeded, "일일 한도 초과"),
+        (DrawResult.InsufficientTicket, "티켓 부족"),
+        (DrawResult.DuplicateRequest, "중복 요청"),
+        (DrawResult.Suspended, "중단됨"),
+        (DrawResult.AllPrizesSoldOut, "전량 소진"),
+    };
+    var lastPage = (Model.TotalCount + CouponOps.Pages.Draws.LogsModel.PageSize - 1) / CouponOps.Pages.Draws.LogsModel.PageSize;
+}
+
+<h1>추첨 이력</h1>
+<p class="sub">성공과 실패를 모두 남깁니다. 각 행은 저장된 난수와 확률표로 <strong>재현 검증</strong>할 수 있습니다.</p>
+
+@if (Model.Error is not null)
+{
+    <div class="alert error">@Model.Error</div>
+}
+
+@if (Model.Verification is { } v)
+{
+    <div class="alert @(v.Matches ? "success" : "danger")">
+        <strong>이력 #@v.LogId 재현 검증 — @(v.Matches ? "일치" : "불일치")</strong>
+        <ul>
+            <li>저장된 결과: 경품 @v.StoredPrizeId @(v.FallbackApplied ? "(대체 치환 전 기준)" : "")</li>
+            <li>재계산 결과: 경품 @v.RecomputedPrizeId</li>
+            <li>확률표 v@v.Version · 해시 <span class="mono">@v.SnapshotHash[..16]</span></li>
+            <li>난수 <span class="mono">@v.RandomValue</span> · roll <span class="mono">@v.Roll</span>@(v.PityApplied ? " · 천장 적용(난수 미사용)" : "")</li>
+        </ul>
+        @if (!v.Matches)
+        {
+            <p>저장된 이력과 재계산이 다릅니다. 즉시 조사 대상입니다.</p>
+        }
+    </div>
+}
+
+<div class="card">
+    <form method="get" class="filters">
+        <div>
+            <label for="ev">룰렛</label>
+            <select id="ev" name="DrawEventId">
+                <option value="">전체</option>
+                @foreach (var e in Model.Events)
+                {
+                    <option value="@e.Id" selected="@(Model.DrawEventId == e.Id)">@e.Name</option>
+                }
+            </select>
+        </div>
+        <div class="grow">
+            <label for="user">유저 ID <span class="hint">정확 일치</span></label>
+            <input id="user" name="UserId" value="@Model.UserId" maxlength="64" />
+        </div>
+        <div>
+            <label for="result">결과</label>
+            <select id="result" name="Result">
+                @foreach (var (value, text) in results)
+                {
+                    <option value="@value" selected="@(Model.Result == value)">@text</option>
+                }
+            </select>
+        </div>
+        <button type="submit">조회</button>
+    </form>
+</div>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+        <tr>
+            <th>요청 시각 (KST)</th>
+            <th>유저</th>
+            <th>결과</th>
+            <th>경품</th>
+            <th class="num">roll</th>
+            <th>비고</th>
+            <th class="num">적재 지연</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var row in Model.Rows)
+        {
+            <tr>
+                <td class="mono nowrap">@KoreaTime.Format(row.RequestedAt)</td>
+                <td class="mono">@row.UserId</td>
+                <td><span class="badge @(row.Result == DrawResult.Won ? "ok" : "fail")">@ResultText(row.Result)</span></td>
+                <td>
+                    @row.PrizeName
+                    @if (row.ItemQty > 0) { <span class="hint">× @row.ItemQty</span> }
+                </td>
+                <td class="num mono">@(row.Roll < 0 ? "-" : row.Roll.ToString("N0"))</td>
+                <td>
+                    @if (row.FallbackApplied) { <span class="badge warn">대체</span> }
+                    @if (row.PityApplied) { <span class="badge info">천장</span> }
+                    @if (row.TicketsSpent > 0) { <span class="hint">티켓 -@row.TicketsSpent</span> }
+                </td>
+                <td class="num mono">@row.PersistenceLagMs ms</td>
+                <td>
+                    @if (row.Result == DrawResult.Won)
+                    {
+                        <form method="post" asp-page-handler="Verify">
+                            <input type="hidden" name="VerifyLogId" value="@row.Id" />
+                            <input type="hidden" name="DrawEventId" value="@Model.DrawEventId" />
+                            <input type="hidden" name="UserId" value="@Model.UserId" />
+                            <input type="hidden" name="PageNumber" value="@Model.PageNumber" />
+                            <button type="submit">재현 검증</button>
+                        </form>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    @if (Model.Rows.Count == 0)
+    {
+        <div class="empty">조건에 맞는 이력이 없습니다.</div>
+    }
+</div>
+
+@if (lastPage > 1)
+{
+    <div class="pager">
+        @if (Model.PageNumber > 1)
+        {
+            <a href="?DrawEventId=@Model.DrawEventId&UserId=@Model.UserId&Result=@Model.Result&PageNumber=@(Model.PageNumber - 1)">이전</a>
+        }
+        <span>@Model.PageNumber / @lastPage · 총 @Model.TotalCount.ToString("N0")건</span>
+        @if (Model.PageNumber < lastPage)
+        {
+            <a href="?DrawEventId=@Model.DrawEventId&UserId=@Model.UserId&Result=@Model.Result&PageNumber=@(Model.PageNumber + 1)">다음</a>
+        }
+    </div>
+}
+
+@functions {
+    static string ResultText(DrawResult r) => r switch
+    {
+        DrawResult.Won => "당첨",
+        DrawResult.OutOfPeriod => "기간 외",
+        DrawResult.DailyLimitExceeded => "일일 한도",
+        DrawResult.InsufficientTicket => "티켓 부족",
+        DrawResult.DuplicateRequest => "중복 요청",
+        DrawResult.Suspended => "중단됨",
+        DrawResult.AllPrizesSoldOut => "전량 소진",
+        _ => r.ToString(),
+    };
+}

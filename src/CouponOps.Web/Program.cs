@@ -97,6 +97,8 @@ builder.Services.AddRazorPages(o =>
     o.Conventions.AuthorizeFolder("/");
     o.Conventions.AllowAnonymousToPage("/Account/Login");
     o.Conventions.AllowAnonymousToPage("/Account/Denied");
+    // 확률 공시는 유저에게 보이는 페이지다. 로그인 뒤에 두면 공시의 의미가 없다.
+    o.Conventions.AllowAnonymousToPage("/Odds");
 });
 
 var app = builder.Build();
@@ -113,6 +115,7 @@ app.MapIssueEndpoints();
 app.MapIssueDbEndpoints();
 app.MapEventStatusEndpoints();
 app.MapDrawEndpoints();
+app.MapDrawStatusEndpoints();
 app.MapHealthEndpoints();
 
 app.Run();

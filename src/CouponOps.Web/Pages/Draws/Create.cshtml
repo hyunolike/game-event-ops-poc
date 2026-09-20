@@ -1,0 +1,197 @@
+@page
+@model CouponOps.Pages.Draws.CreateModel
+@{
+    ViewData["Title"] = "룰렛 생성";
+    var used = Model.Slots.Where(s => s.IsUsed).ToList();
+}
+
+<h1>새 룰렛</h1>
+<p class="sub">
+    가중치를 입력하면 확률이 계산됩니다. 저장 전에 <strong>시뮬레이션을 반드시 통과</strong>해야 합니다 —
+    가중치 오타는 그 화면에서만 걸립니다.
+</p>
+
+@if (Model.Errors.Count > 0)
+{
+    <div class="alert error">
+        입력을 확인해 주세요.
+        <ul>@foreach (var e in Model.Errors) { <li>@e</li> }</ul>
+    </div>
+}
+
+<form method="post">
+    <input type="hidden" name="PreviewSignature" value="@Model.PreviewSignature" />
+
+    <div class="card">
+        <div class="form-grid">
+            <div>
+                <label for="code">이벤트 코드 <span class="hint">외부 노출 식별자, 생성 후 변경 불가</span></label>
+                <input id="code" name="Code" value="@Model.Code" maxlength="64" required />
+            </div>
+            <div>
+                <label for="name">이벤트 이름</label>
+                <input id="name" name="Name" value="@Model.Name" maxlength="200" required />
+            </div>
+            <div>
+                <label for="startsAt">시작 시각 <span class="hint">KST</span></label>
+                <input id="startsAt" name="StartsAt" type="datetime-local" value="@Model.StartsAt.ToString("yyyy-MM-ddTHH:mm")" required />
+            </div>
+            <div>
+                <label for="endsAt">종료 시각 <span class="hint">KST</span></label>
+                <input id="endsAt" name="EndsAt" type="datetime-local" value="@Model.EndsAt.ToString("yyyy-MM-ddTHH:mm")" required />
+            </div>
+            <div>
+                <label for="daily">일일 추첨 횟수 <span class="hint">0 = 무제한 (티켓 필요)</span></label>
+                <input id="daily" name="DailyDrawLimit" type="number" min="0" value="@Model.DailyDrawLimit" required />
+            </div>
+            <div>
+                <label for="reset">일일 리셋 시각 <span class="hint">게임 이벤트는 자정이 아니라 새벽에 바뀝니다</span></label>
+                <select id="reset" name="DailyResetHour">
+                    @for (var h = 0; h < 24; h++)
+                    {
+                        <option value="@h" selected="@(Model.DailyResetHour == h)">@h.ToString("00"):00 KST</option>
+                    }
+                </select>
+            </div>
+            <div>
+                <label for="ticketItem">티켓 아이템 ID <span class="hint">비우면 무료</span></label>
+                <input id="ticketItem" name="TicketItemId" type="number" value="@Model.TicketItemId" />
+            </div>
+            <div>
+                <label for="ticketCost">1회당 티켓 소모</label>
+                <input id="ticketCost" name="TicketCost" type="number" min="0" value="@Model.TicketCost" />
+            </div>
+            <div>
+                <label for="pity">천장 <span class="hint">N회 안에 반드시 당첨 (N번째가 확정). 0 = 사용 안 함</span></label>
+                <input id="pity" name="PityThreshold" type="number" min="0" value="@Model.PityThreshold" />
+            </div>
+            <div>
+                <label for="pitySlot">천장 지급 경품 <span class="hint">슬롯 번호</span></label>
+                <input id="pitySlot" name="PitySlot" type="number" min="-1" value="@Model.PitySlot" />
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>슬롯</h2>
+        <p class="sub">
+            경품명을 비워 두면 사용하지 않는 줄입니다. 남은 줄은 위에서부터 0번 슬롯으로 다시 매겨집니다.
+            재고 <span class="mono">-1</span> 은 무제한입니다.
+        </p>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th class="num">슬롯</th>
+                    <th>경품명</th>
+                    <th class="num">아이템 ID</th>
+                    <th class="num">수량</th>
+                    <th class="num">가중치</th>
+                    <th class="num">재고</th>
+                    <th>잭팟</th>
+                    <th>꽝</th>
+                </tr>
+                </thead>
+                <tbody>
+                @for (var i = 0; i < Model.Slots.Count; i++)
+                {
+                    <tr>
+                        <td class="num mono">@i</td>
+                        <td><input name="Slots[@i].Name" value="@Model.Slots[i].Name" maxlength="200" /></td>
+                        <td class="num"><input name="Slots[@i].ItemId" type="number" value="@Model.Slots[i].ItemId" /></td>
+                        <td class="num"><input name="Slots[@i].ItemQty" type="number" min="0" value="@Model.Slots[i].ItemQty" /></td>
+                        <td class="num"><input name="Slots[@i].Weight" type="number" min="0" value="@Model.Slots[i].Weight" /></td>
+                        <td class="num"><input name="Slots[@i].Stock" type="number" min="-1" value="@Model.Slots[i].Stock" /></td>
+                        <td>
+                            <input type="checkbox" name="Slots[@i].IsJackpot" value="true" checked="@Model.Slots[i].IsJackpot" />
+                            <input type="hidden" name="Slots[@i].IsJackpot" value="false" />
+                        </td>
+                        <td>
+                            <input type="checkbox" name="Slots[@i].IsBlank" value="true" checked="@Model.Slots[i].IsBlank" />
+                            <input type="hidden" name="Slots[@i].IsBlank" value="false" />
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="form-grid">
+            <div>
+                <label for="fallback">대체 경품 슬롯 <span class="hint">한정 재고가 소진되면 이 경품으로 지급됩니다</span></label>
+                <input id="fallback" name="FallbackSlot" type="number" min="-1" value="@Model.FallbackSlot" />
+            </div>
+            <div>
+                <label for="sim">시뮬레이션 횟수</label>
+                <input id="sim" name="SimulationDraws" type="number" min="1" value="@Model.SimulationDraws" />
+            </div>
+        </div>
+
+        <div class="actions">
+            <button type="submit" asp-page-handler="Preview">확률 계산 · 시뮬레이션</button>
+        </div>
+    </div>
+
+    @if (Model.Simulation is not null)
+    {
+        <div class="card">
+            <h2>확률 미리보기</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th class="num">슬롯</th>
+                        <th>경품</th>
+                        <th class="num">가중치</th>
+                        <th class="num">확률</th>
+                        <th class="num">재고</th>
+                        <th class="num">기대 당첨</th>
+                        <th class="num">예상 지급</th>
+                        <th class="num">대체 치환</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var row in Model.Simulation.Rows)
+                    {
+                        <tr>
+                            <td class="num mono">@row.SlotIndex</td>
+                            <td>
+                                @row.Name
+                                @if (row.IsJackpot) { <span class="badge warn">잭팟</span> }
+                                @if (row.IsBlank) { <span class="badge">꽝</span> }
+                            </td>
+                            <td class="num mono">@Model.Odds.Single(o => o.SlotIndex == row.SlotIndex).Weight.ToString("N0")</td>
+                            <td class="num mono"><strong>@row.Percent.ToString("F2")%</strong></td>
+                            <td class="num mono">@(row.Stock < 0 ? "∞" : row.Stock.ToString("N0"))</td>
+                            <td class="num mono">@row.ExpectedDraws.ToString("N1")</td>
+                            <td class="num mono">@row.ExpectedGrants.ToString("N0")</td>
+                            <td class="num mono">@(row.OverflowDraws == 0 ? "-" : row.OverflowDraws.ToString("N0"))</td>
+                        </tr>
+                    }
+                    </tbody>
+                    <tfoot>
+                    <tr>
+                        <th colspan="2">합계</th>
+                        <th class="num mono">@Model.Simulation.TotalWeight.ToString("N0")</th>
+                        <th class="num mono">@CouponOps.Application.DrawOdds.Sum(Model.Odds).ToString("F2")%</th>
+                        <th colspan="4"></th>
+                    </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            @if (Model.Simulation.Warnings.Count > 0)
+            {
+                <div class="alert warn">
+                    <ul>@foreach (var w in Model.Simulation.Warnings) { <li>@w</li> }</ul>
+                </div>
+            }
+
+            <div class="actions">
+                <button class="primary" type="submit" asp-page-handler="Create">이 설정으로 생성</button>
+                <a class="btn" href="/Draws">취소</a>
+            </div>
+        </div>
+    }
+</form>
