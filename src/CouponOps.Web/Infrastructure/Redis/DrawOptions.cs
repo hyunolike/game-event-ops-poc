@@ -21,4 +21,16 @@ public sealed class DrawOptions
 
     public int PersistenceBatchSize { get; set; } = 500;
     public TimeSpan PersistencePollInterval { get; set; } = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// 같은 유저의 잭팟 당첨이 이 횟수에 이르면 이상 징후로 본다.
+    /// 확률적으로 불가능하지는 않으므로 "부정" 이 아니라 "봐야 할 것" 으로 다룬다.
+    /// </summary>
+    public int JackpotRepeatThreshold { get; set; } = 3;
+
+    /// <summary>추첨 폭주를 판정하는 시간 창.</summary>
+    public TimeSpan BurstWindow { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>한 유저가 <see cref="BurstWindow"/> 안에 이 횟수를 넘겨 돌리면 이상 징후로 본다.</summary>
+    public int BurstThreshold { get; set; } = 100;
 }

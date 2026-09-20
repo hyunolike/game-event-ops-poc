@@ -109,6 +109,41 @@
 }
 
 <div class="card">
+    <h2>이상 징후 <span class="hint">부정 판정이 아니라 "봐야 할 것" 입니다</span></h2>
+
+    @if (Model.Anomalies.Count == 0)
+    {
+        <div class="empty">임계치를 넘는 패턴이 없습니다.</div>
+    }
+    else
+    {
+        <p class="sub">
+            드문 일이 일어난 것일 수도 있습니다. 자동으로 회수하거나 차단하지 않습니다 —
+            오탐 한 건의 비용이 탐지 이득보다 큽니다.
+        </p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr><th>유형</th><th>유저</th><th class="num">횟수</th><th>내용</th><th></th></tr>
+                </thead>
+                <tbody>
+                @foreach (var a in Model.Anomalies)
+                {
+                    <tr>
+                        <td><span class="badge warn">@KindText(a.Kind)</span></td>
+                        <td class="mono">@a.UserId</td>
+                        <td class="num mono">@a.Count.ToString("N0")</td>
+                        <td>@a.Detail</td>
+                        <td><a href="/Draws/Logs?drawEventId=@ev.Id&amp;userId=@a.UserId">이력 보기</a></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<div class="card">
     <h2>확률 버전 <span class="hint">append-only — 과거 추첨은 자기가 쓴 버전을 계속 가리킵니다</span></h2>
     <div class="table-wrap">
         <table>
@@ -313,6 +348,13 @@
 }
 
 @functions {
+    static string KindText(AnomalyKind k) => k switch
+    {
+        AnomalyKind.JackpotRepeat => "잭팟 반복",
+        AnomalyKind.DrawBurst => "추첨 폭주",
+        _ => k.ToString(),
+    };
+
     static string StatusText(EventStatus s) => s switch
     {
         EventStatus.Scheduled => "예정",
