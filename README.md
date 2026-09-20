@@ -189,6 +189,81 @@ POSTs the form as a viewer to prove the state does not change.
 
 ---
 
+## Roulette — probabilistic rewards
+
+First-come coupons are a problem of guaranteeing *exactly N*. A roulette adds one more:
+**the outcome is not deterministic.** Three further problems are solved on the same engine
+(idempotency, atomicity, outbox, audit log).
+
+### 1. Probabilities are never stored — only integer weights
+
+`weight = 5 / total = 1000`, not `probability = 0.005`.
+No floating-point summation error, so "the odds add up to exactly 100%" is verifiable;
+adding a slot does not touch the others; and the draw ends in integer arithmetic
+(`roll = rand % totalWeight`).
+
+Displayed odds are computed on read — the same principle as deriving event state.
+And **the admin preview and the public disclosure page call the same function.** The moment
+they compute separately, they will eventually disagree — and a disagreeing disclosure is itself
+the incident.
+
+### 2. Sold-out stock is absorbed by substitution, not redistribution
+
+Redistributing the remaining weight means **the second prize's real odds silently rise the
+moment the first one sells out** — and players have no way to know.
+
+So a sold-out slot is replaced by a designated fallback prize. Disclosed odds always equal
+executed odds, and as a bonus the **cumulative weight array stays immutable for the whole
+event** — built once at warm-up. Redistribution is rejected outright in code.
+
+### 3. The random number is not drawn inside Lua
+
+It is drawn by the app (`RandomNumberGenerator`) and passed in as `ARGV`.
+What needs atomicity is *selection + decrement*, not *random generation* — and drawing it
+outside is what makes it possible to **store the value and recompute the draw afterwards.**
+
+```
+DrawLog(WeightVersionId, RandomValue)  →  Recompute()  →  equals the stored PrizeId?
+```
+
+Support claims, internal audits, regulatory questions and bug investigations all end on that
+one line. Every row in the history screen carries a **[verify]** button.
+
+Changing odds is not an UPDATE but a new `DrawWeightVersion` activation (append-only) —
+if past logs pointed at the new table, those draws could no longer be explained.
+
+### The draw script's third principle
+
+On top of the coupon script's two (idempotency check first; finish all read validation before
+writing), one more:
+
+> **The ticket is spent as the very first write, and no failure branch may follow it.**
+> "My ticket is gone and I got nothing" is the worst failure from the player's side.
+
+So slot selection, stock checking and fallback substitution all complete in the read phase.
+
+→ [docs/04-roulette-design.md](docs/04-roulette-design.md) ·
+[draw_spin.lua](src/CouponOps.Web/Infrastructure/Redis/Scripts/draw_spin.lua)
+
+### What the back-office prevents
+
+| Screen | Incident it prevents |
+|---|---|
+| Slot editor + **simulator gate** | A weight typed as `50` instead of `5` — you cannot save without viewing the simulation |
+| Single fallback selector | Finite-stock slots chaining or cycling substitutions |
+| Live deviation + chi-square | Misconfigured weights · stale warm-up · abuse |
+| Weight version history | Being unable to answer "what were the odds back then?" |
+| Three-way force-stop confirm | Stopping the wrong event from the next browser tab |
+| Auto-generated disclosure page | Admin odds and the public page drifting apart |
+
+```bash
+curl -X POST http://localhost:8080/api/draws/1/spin \
+  -H 'Content-Type: application/json' \
+  -d '{"userId":"player-1234","requestId":"3f2b8c10-0000-4000-8000-000000000001"}'
+```
+
+---
+
 ## Run it
 
 ```bash
@@ -355,7 +430,7 @@ src/CouponOps.Web/          single project (Minimal API + Razor Pages)
 ├─ Application/             use cases
 ├─ Api/                     issuance API · live status · health
 ├─ Infrastructure/
-│  ├─ Redis/Scripts/        issue_coupon.lua   ← the concurrency control
+│  ├─ Redis/Scripts/        issue_coupon.lua · draw_spin.lua   ← the concurrency control
 │  ├─ Persistence/          EF Core · migrations
 │  └─ Workers/              asynchronous persistence worker
 └─ Pages/                   back-office
@@ -380,6 +455,7 @@ All written in Korean.
 | [1 — Domain design](docs/01-domain-design.md) | ERD, entities, why each index exists |
 | [2 — Issuance API and concurrency](docs/02-issue-api.md) | Lua ordering, the fail-fast decision |
 | [3 — Back-office](docs/03-admin-tool.md) | role separation, dangerous-action gating |
-| [4 — Load test](docs/load-test.md) | the comparison, including what the setup cannot show |
+| [4 — Roulette design](docs/04-roulette-design.md) | weights, sold-out policy, where the RNG lives, reproducibility |
+| [Load test](docs/load-test.md) | the comparison, including what the setup cannot show |
 | [5 — CI/CD](docs/cicd.md) | Jenkins vs Actions, container deployment trade-offs |
 | [AI usage log](docs/ai-usage.md) | what was AI-generated, and how each defect was caught |

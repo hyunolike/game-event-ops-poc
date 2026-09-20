@@ -176,6 +176,77 @@ Razor Pages 는 `AuthorizeFolder("/")` 로 **기본값이 "로그인 필요"** �
 
 ---
 
+## 룰렛 — 확률 지급 이벤트
+
+선착순 쿠폰이 "정확히 N개" 를 보증하는 문제라면, 룰렛은 거기에 **결과가 확정적이지 않다** 는
+문제가 얹힌다. 같은 엔진(멱등·원자성·아웃박스·감사 로그) 위에 세 가지를 더 풀었다.
+
+### 1. 확률은 저장하지 않는다 — 가중치만 저장한다
+
+`probability = 0.005` 대신 `weight = 5 / total = 1000`.
+부동소수 합산 오차가 없어 "합이 정확히 100%" 를 검증할 수 있고, 슬롯을 하나 추가할 때
+나머지를 건드리지 않아도 되며, 추첨이 정수 나머지 연산(`roll = rand % totalWeight`)으로 끝난다.
+
+표시 확률은 읽을 때 계산한다 — 이벤트 상태를 파생시키는 것과 같은 원칙이다.
+그리고 **어드민 미리보기와 공개 공시가 같은 함수를 쓴다.** 둘이 다른 계산을 하는 순간
+언젠가 반드시 어긋나고, 어긋난 공시는 그 자체로 사고다.
+
+### 2. 재고 소진은 재분배가 아니라 대체로 흡수한다
+
+소진된 슬롯을 빼고 남은 가중치로 다시 뽑으면(재분배), **1등이 소진되는 순간 2등 확률이
+저절로 올라가 공시가 거짓이 된다.** 유저는 그걸 알 방법이 없다.
+
+그래서 소진된 슬롯이 뽑히면 지정된 대체 경품으로 치환한다. 공시 확률 = 실행 확률이 항상 유지되고,
+부수적으로 **누적 가중치 배열이 이벤트 기간 내내 불변**이라 워밍업 때 한 번 만들면 끝이다.
+재분배 정책은 코드에서 아예 거부한다.
+
+### 3. 난수는 Lua 안에서 뽑지 않는다
+
+`RandomNumberGenerator` 로 앱에서 뽑아 `ARGV` 로 넘긴다.
+원자성이 필요한 것은 *선택 + 차감* 이지 *난수 생성* 이 아니고, 밖에서 만들어야
+**그 값을 이력에 남겨 사후에 추첨을 그대로 재계산할 수 있다.**
+
+```
+DrawLog(WeightVersionId, RandomValue)  →  Recompute()  →  저장된 PrizeId 와 일치?
+```
+
+CS 클레임·내부 감사·규제 대응·버그 조사가 전부 이 한 줄에서 끝난다.
+운영툴의 이력 화면에는 행마다 **[재현 검증]** 버튼이 있다.
+
+확률 변경은 UPDATE 가 아니라 `DrawWeightVersion` 새 버전 활성화다(append-only).
+과거 이력이 새 확률표를 가리키면 그 추첨을 더 이상 설명할 수 없기 때문이다.
+
+### 추첨 스크립트의 세 번째 원칙
+
+쿠폰 스크립트의 두 원칙(멱등 검사가 가장 먼저 / 읽기 검증을 끝낸 뒤 쓰기)에 하나가 붙는다.
+
+> **티켓 차감은 쓰기 구간의 맨 앞이고, 그 뒤로 실패 분기가 없어야 한다.**
+> "티켓은 빠졌는데 아무것도 못 받았다" 가 유저 입장에서 가장 나쁜 실패다.
+
+그래서 슬롯 결정·재고 판정·대체 치환까지 전부 읽기 단계에서 끝낸다.
+
+→ [docs/04-roulette-design.md](docs/04-roulette-design.md) ·
+[draw_spin.lua](src/CouponOps.Web/Infrastructure/Redis/Scripts/draw_spin.lua)
+
+### 운영툴에서 막는 것
+
+| 화면 | 막는 사고 |
+|---|---|
+| 슬롯 편집기 + **시뮬레이터 게이트** | 가중치 `5` 를 `50` 으로 친 오타. 시뮬레이션을 보지 않으면 저장이 안 된다 |
+| 대체 경품 단일 선택 | 유한 재고끼리 대체를 걸어 치환이 연쇄·순환하는 설정 |
+| 실시간 편차 + 카이제곱 | 가중치 오류 · 워밍업 불일치 · 어뷰징 |
+| 확률 버전 이력 | "그때 확률이 뭐였나" 에 답할 수 없는 상태 |
+| 강제 중단 3중 확인 | 옆 탭의 다른 이벤트를 중단시키는 실수 |
+| 공시 페이지 자동 생성 | 어드민 확률표와 공시가 어긋나는 것 |
+
+```bash
+curl -X POST http://localhost:8080/api/draws/1/spin \
+  -H 'Content-Type: application/json' \
+  -d '{"userId":"player-1234","requestId":"3f2b8c10-0000-4000-8000-000000000001"}'
+```
+
+---
+
 ## 실행
 
 ```bash
@@ -335,12 +406,12 @@ src/CouponOps.Web/          단일 프로젝트 (Minimal API + Razor Pages)
 ├─ Application/             유스케이스
 ├─ Api/                     발급 API · 현황 · 헬스체크
 ├─ Infrastructure/
-│  ├─ Redis/Scripts/        issue_coupon.lua  ← 동시성 제어의 핵심
+│  ├─ Redis/Scripts/        issue_coupon.lua · draw_spin.lua  ← 동시성 제어의 핵심
 │  ├─ Persistence/          EF Core · 마이그레이션
 │  └─ Workers/              비동기 적재 워커
 └─ Pages/                   운영툴
 
-tests/CouponOps.Tests/      통합 테스트 46건 (Testcontainers, 실제 MSSQL·Redis)
+tests/CouponOps.Tests/      통합 테스트 (Testcontainers, 실제 MSSQL·Redis)
 loadtest/                   k6 시나리오 + 측정 스크립트
 deploy/                     blue-green 배포 스크립트 · nginx
 docs/                       설계·측정·CI/CD·AI 활용 기록
@@ -358,6 +429,7 @@ docs/                       설계·측정·CI/CD·AI 활용 기록
 | [1단계 — 도메인 설계](docs/01-domain-design.md) | ERD, 엔티티, 인덱스 설계 근거 |
 | [2단계 — 발급 API와 동시성](docs/02-issue-api.md) | Lua 순서 근거, fail-fast 판단 |
 | [3단계 — 운영툴](docs/03-admin-tool.md) | 권한 구분, 위험 액션 확인 절차 |
-| [4단계 — 부하 테스트](docs/load-test.md) | 측정 환경의 한계까지 포함한 비교 리포트 |
+| [4단계 — 룰렛(확률 지급) 설계](docs/04-roulette-design.md) | 가중치·소진 정책·난수 위치, 재현 가능성 |
+| [부하 테스트](docs/load-test.md) | 측정 환경의 한계까지 포함한 비교 리포트 |
 | [5단계 — CI/CD](docs/cicd.md) | Jenkins vs Actions, 컨테이너 배포 트레이드오프 |
 | [AI 활용 기록](docs/ai-usage.md) | 무엇을 AI 로 만들었고 어떻게 검증했는가 |
