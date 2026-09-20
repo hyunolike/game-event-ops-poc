@@ -34,6 +34,8 @@
         <div class="stat"><span class="label">천장</span><span class="value">@(ev.PityThreshold == 0 ? "없음" : $"{ev.PityThreshold}회")</span></div>
         <div class="stat"><span class="label">누적 추첨</span><span class="value" id="total-draws">@dev.TotalDraws.ToString("N0")</span></div>
         <div class="stat"><span class="label">DB 적재 대기</span><span class="value" id="pending">@Math.Max(0, dev.TotalDraws - Model.PersistedLogs).ToString("N0")</span></div>
+        <div class="stat"><span class="label">우편 미수령</span><span class="value">@Model.UnclaimedMails.ToString("N0")</span></div>
+        <div class="stat"><span class="label">우편 수령</span><span class="value">@Model.ClaimedMails.ToString("N0")</span></div>
     </div>
 </div>
 
@@ -140,6 +142,41 @@
                 <input id="grantAmount" name="GrantAmount" type="number" min="1" value="@Model.GrantAmount" required />
             </div>
             <button type="submit">지급</button>
+        </form>
+    </div>
+
+    <div class="card danger-zone">
+        <h2>미수령 보상 회수</h2>
+        <p class="sub">
+            <strong>이미 수령한 우편은 회수되지 않습니다.</strong> 아이템이 이미 유저 손에 있기 때문입니다.
+            잘못 설정된 경품을 되돌릴 수 있는 유일한 창이 미수령 구간입니다 — 현재 @Model.UnclaimedMails.ToString("N0")건.
+        </p>
+
+        <form method="post" asp-page-handler="RevokeMails"
+              onsubmit="return confirm('미수령 보상을 회수합니다. 되돌릴 수 없습니다. 계속할까요?');">
+            <div class="form-grid">
+                <div>
+                    <label for="revokePrize">대상 경품</label>
+                    <select id="revokePrize" name="RevokePrizeId">
+                        <option value="">전체 경품</option>
+                        @foreach (var p in Model.Prizes.Where(p => !p.IsBlank))
+                        {
+                            <option value="@p.Id">@p.SlotIndex번 · @p.Name</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label for="revokeCode">확인 — 이벤트 코드 <span class="hint mono">@ev.Code</span></label>
+                    <input id="revokeCode" name="RevokeConfirmCode" autocomplete="off" required />
+                </div>
+                <div>
+                    <label for="revokeReason">회수 사유 <span class="hint">필수 · 운영 로그에 남습니다</span></label>
+                    <input id="revokeReason" name="RevokeReason" maxlength="500" required />
+                </div>
+            </div>
+            <div class="actions">
+                <button class="danger" type="submit">미수령분 회수</button>
+            </div>
         </form>
     </div>
 

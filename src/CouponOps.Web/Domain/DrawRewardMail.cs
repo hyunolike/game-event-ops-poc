@@ -34,6 +34,13 @@ public class DrawRewardMail
     public DateTime? RevokedAt { get; private set; }
     public string? RevokeReason { get; private set; }
 
+    /// <summary>
+    /// 낙관적 동시성 토큰. 같은 우편을 동시에 여러 번 수령해도 정확히 한 번만 성공한다.
+    /// 규칙은 <see cref="TryClaim"/> 한 곳에만 있고, 이 토큰이 "읽은 뒤 바뀌지 않았음" 을 보증한다 —
+    /// 규칙을 WHERE 절에 복사해 두 곳에서 관리하지 않기 위한 선택이다(<see cref="Coupon"/> 과 동일).
+    /// </summary>
+    public byte[] RowVersion { get; private set; } = default!;
+
     public static DrawRewardMail Create(
         Guid requestId, long drawEventId, string userId,
         long prizeId, string prizeName, long itemId, int itemQty, DateTime createdAtUtc) =>

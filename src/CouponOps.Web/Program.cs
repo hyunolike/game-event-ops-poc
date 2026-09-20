@@ -68,6 +68,7 @@ builder.Services.AddScoped<DbIssueCouponService>();   // 4단계 비교 측정�
 builder.Services.AddScoped<EventAdminService>();
 builder.Services.AddScoped<SpinDrawService>();
 builder.Services.AddScoped<DrawAdminService>();
+builder.Services.AddScoped<DrawMailService>();
 
 builder.Services.AddHostedService<IssuancePersistenceWorker>();
 builder.Services.AddHostedService<DrawPersistenceWorker>();
@@ -116,6 +117,7 @@ app.MapIssueDbEndpoints();
 app.MapEventStatusEndpoints();
 app.MapDrawEndpoints();
 app.MapDrawStatusEndpoints();
+app.MapDrawMailEndpoints();
 app.MapHealthEndpoints();
 
 app.Run();

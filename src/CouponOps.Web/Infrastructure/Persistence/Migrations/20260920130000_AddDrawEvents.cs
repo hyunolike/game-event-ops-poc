@@ -41,7 +41,7 @@ namespace CouponOps.Web.Infrastructure.Persistence.Migrations
                     PoolWarmedAt = table.Column<DateTime>(type: "datetime2(3)", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "datetime2(3)", nullable: false),
                     UpdatedAt = table.Column<DateTime>(type: "datetime2(3)", nullable: false),
-                    RowVersion = table.Column<byte[]>(type: "rowversion", rowVersion: true, nullable: true)
+                    RowVersion = table.Column<byte[]>(type: "rowversion", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
                 {

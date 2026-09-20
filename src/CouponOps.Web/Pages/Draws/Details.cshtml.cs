@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CouponOps.Pages.Draws;
 
 public sealed class DetailsModel(
-    AppDbContext db, IDrawStore store, DrawAdminService admin,
+    AppDbContext db, IDrawStore store, DrawAdminService admin, DrawMailService mails,
     ICurrentActor actor, TimeProvider clock) : PageModel
 {
     [BindProperty(SupportsGet = true)] public long Id { get; set; }
@@ -21,12 +21,19 @@ public sealed class DetailsModel(
     [BindProperty] public string? GrantUserId { get; set; }
     [BindProperty] public int GrantAmount { get; set; } = 1;
 
+    // 보상 회수도 되돌릴 수 없는 액션이다 — 중단과 같은 확인 절차를 쓴다.
+    [BindProperty] public long? RevokePrizeId { get; set; }
+    [BindProperty] public string? RevokeConfirmCode { get; set; }
+    [BindProperty] public string? RevokeReason { get; set; }
+
     public DrawEvent? Event { get; private set; }
     public EventStatus Status { get; private set; }
     public List<DrawPrize> Prizes { get; private set; } = [];
     public DeviationReport? Deviation { get; private set; }
     public List<DrawWeightVersion> Versions { get; private set; } = [];
     public long PersistedLogs { get; private set; }
+    public int UnclaimedMails { get; private set; }
+    public int ClaimedMails { get; private set; }
     public List<OperationLog> RecentOperations { get; private set; } = [];
     public string? Error { get; private set; }
 
@@ -86,6 +93,38 @@ public sealed class DetailsModel(
         return RedirectToPage("/Draws/Details", new { id = Id });
     }
 
+    /// <summary>
+    /// 미수령 보상 회수. 이미 수령한 우편은 대상이 아니다 — 아이템이 이미 유저 손에 있다.
+    /// </summary>
+    /// <remarks>
+    /// 회수는 되돌릴 수 없고 유저에게 직접 영향을 준다. 그래서 강제 중단과 같은 확인 절차를 쓴다 —
+    /// 대상을 직접 지목하게 하고(이벤트 코드), 사유를 강제한다.
+    /// </remarks>
+    public async Task<IActionResult> OnPostRevokeMailsAsync(CancellationToken ct)
+    {
+        if (!actor.CanEdit) return Forbid();
+        if (!await LoadAsync(ct)) return NotFound();
+
+        if (!string.Equals(RevokeConfirmCode?.Trim(), Event!.Code, StringComparison.Ordinal))
+        {
+            Error = "회수 확인을 위해 이벤트 코드를 정확히 입력해야 합니다.";
+            return Page();
+        }
+
+        if (string.IsNullOrWhiteSpace(RevokeReason))
+        {
+            Error = "회수 사유는 필수입니다. 운영 로그에 남습니다.";
+            return Page();
+        }
+
+        var revoked = await mails.RevokeUnclaimedAsync(Id, RevokePrizeId, RevokeReason.Trim(), ct);
+
+        TempData["Flash"] = revoked == 0
+            ? "회수할 미수령 우편이 없습니다."
+            : $"미수령 보상 {revoked:N0}건을 회수했습니다. 이미 수령한 우편은 그대로입니다.";
+        return RedirectToPage("/Draws/Details", new { id = Id });
+    }
+
     private async Task<bool> LoadAsync(CancellationToken ct)
     {
         Event = await db.DrawEvents.AsNoTracking().SingleOrDefaultAsync(e => e.Id == Id, ct);
@@ -107,6 +146,11 @@ public sealed class DetailsModel(
 
         PersistedLogs = await db.DrawLogs
             .CountAsync(l => l.DrawEventId == Id && l.Result == DrawResult.Won, ct);
+
+        UnclaimedMails = await db.DrawRewardMails
+            .CountAsync(m => m.DrawEventId == Id && m.ClaimedAt == null && m.RevokedAt == null, ct);
+        ClaimedMails = await db.DrawRewardMails
+            .CountAsync(m => m.DrawEventId == Id && m.ClaimedAt != null, ct);
 
         RecentOperations = await db.OperationLogs.AsNoTracking()
             .Where(o => o.TargetType == nameof(DrawEvent) && o.TargetId == Id.ToString())

@@ -218,6 +218,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.CreatedAt).HasColumnType("datetime2(3)");
             e.Property(x => x.ClaimedAt).HasColumnType("datetime2(3)");
             e.Property(x => x.RevokedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.RowVersion).IsRowVersion();
 
             e.HasOne<DrawEvent>().WithMany()
              .HasForeignKey(x => x.DrawEventId).OnDelete(DeleteBehavior.NoAction);

@@ -45,4 +45,6 @@ public enum OperationAction : byte
     DrawWeightVersionActivated = 11,
     DrawPoolWarmed = 12,
     DrawTicketsGranted = 13,
+    /// <summary>미수령 보상 우편 회수. 이미 수령한 우편은 대상이 아니다.</summary>
+    DrawRewardsRevoked = 14,
 }

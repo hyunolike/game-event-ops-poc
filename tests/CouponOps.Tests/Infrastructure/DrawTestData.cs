@@ -136,6 +136,28 @@ public static class DrawTestData
             randomValue, DrawDay.For(now, meta.DailyResetAt), logFailure: true, CancellationToken.None);
     }
 
+    /// <summary>보상 우편이 기대 건수만큼 적재될 때까지 기다린다. 적재는 비동기다.</summary>
+    public static async Task<List<DrawRewardMail>> WaitForMailsAsync(
+        this CouponOpsFixture fx, long drawEventId, string userId, int expected, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            using var scope = fx.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var mails = await db.DrawRewardMails.AsNoTracking()
+                .Where(m => m.DrawEventId == drawEventId && m.UserId == userId)
+                .ToListAsync();
+
+            if (mails.Count >= expected) return mails;
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException(
+            $"룰렛 {drawEventId} · {userId} 의 보상 우편 {expected}건이 적재되지 않았습니다.");
+    }
+
     /// <summary>추첨 이력이 기대 건수만큼 적재될 때까지 기다린다. Redis 경로는 비동기 적재다.</summary>
     public static async Task<List<DrawLog>> WaitForDrawLogsAsync(
         this CouponOpsFixture fx, long drawEventId, int expected, TimeSpan timeout)
