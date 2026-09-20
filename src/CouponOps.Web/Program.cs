@@ -22,6 +22,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<IssuanceOptions>(
     builder.Configuration.GetSection(IssuanceOptions.SectionName));
 
+builder.Services.Configure<DrawOptions>(
+    builder.Configuration.GetSection(DrawOptions.SectionName));
+
 builder.Services.AddSingleton(TimeProvider.System);
 
 // 기본 HtmlEncoder 는 비 ASCII 문자를 전부 숫자 참조(&#xC774;)로 바꾼다.
@@ -51,6 +54,11 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
 
 builder.Services.AddSingleton<IssuanceScript>();
 builder.Services.AddSingleton<IIssuanceStore, RedisIssuanceStore>();
+builder.Services.AddSingleton<DrawScript>();
+builder.Services.AddSingleton<IDrawStore, RedisDrawStore>();
+// 추첨 hot path 가 경품명·리셋 시각 때문에 매번 DB 를 읽지 않도록 하는 캐시.
+// 판정에 쓰이는 값은 전부 Redis 에 있으므로, 이 캐시가 잠시 낡아도 정확성에는 영향이 없다.
+builder.Services.AddSingleton<DrawMetaCache>();
 builder.Services.AddSingleton<IPasswordHasher<AdminUser>, PasswordHasher<AdminUser>>();
 
 builder.Services.AddScoped<ICurrentActor, HttpCurrentActor>();
@@ -58,8 +66,11 @@ builder.Services.AddScoped<IAuditLogger, AuditLogger>();
 builder.Services.AddScoped<IssueCouponService>();
 builder.Services.AddScoped<DbIssueCouponService>();   // 4단계 비교 측정용 대조군
 builder.Services.AddScoped<EventAdminService>();
+builder.Services.AddScoped<SpinDrawService>();
+builder.Services.AddScoped<DrawAdminService>();
 
 builder.Services.AddHostedService<IssuancePersistenceWorker>();
+builder.Services.AddHostedService<DrawPersistenceWorker>();
 builder.Services.AddHostedService<AdminSeedWorker>();
 
 // ── 인증: 운영툴 전용 쿠키 ────────────────────────────────────────────────────
@@ -101,6 +112,7 @@ app.MapRazorPages();
 app.MapIssueEndpoints();
 app.MapIssueDbEndpoints();
 app.MapEventStatusEndpoints();
+app.MapDrawEndpoints();
 app.MapHealthEndpoints();
 
 app.Run();

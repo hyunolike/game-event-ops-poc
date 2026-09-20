@@ -38,4 +38,11 @@ public enum OperationAction : byte
 {
     EventCreated = 0, EventUpdated = 1, EventSuspended = 2, EventResumed = 3,
     CouponPoolWarmed = 4, CouponRevoked = 5, AdminSignedIn = 6,
+
+    // 룰렛(확률 지급) 이벤트. 값을 append 만 한다 — 기존 값이 밀리면 이미 적재된 감사 로그의 의미가 바뀐다.
+    DrawEventCreated = 7, DrawEventUpdated = 8, DrawEventSuspended = 9, DrawEventResumed = 10,
+    /// <summary>가중치(확률) 새 버전 활성화. 진행 중 변경은 공시와 직결되므로 별도 액션으로 남긴다.</summary>
+    DrawWeightVersionActivated = 11,
+    DrawPoolWarmed = 12,
+    DrawTicketsGranted = 13,
 }

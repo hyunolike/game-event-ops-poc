@@ -90,10 +90,7 @@ public class CouponEvent
 
     /// <summary>저장된 값과 현재 시각으로부터 상태를 파생한다.</summary>
     public EventStatus StatusAt(DateTime utcNow) =>
-        SuspendedAt is not null ? EventStatus.Suspended
-        : utcNow < StartsAt     ? EventStatus.Scheduled
-        : utcNow >= EndsAt      ? EventStatus.Ended
-                                : EventStatus.Active;
+        EventSchedule.StatusAt(SuspendedAt, StartsAt, EndsAt, utcNow);
 
     /// <summary>
     /// <see cref="StatusAt"/> 와 동일한 규칙을 SQL 로 번역 가능한 술어로 표현한다.
