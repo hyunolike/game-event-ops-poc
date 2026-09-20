@@ -92,8 +92,21 @@
     <p class="actions">
         <a class="btn" href="/Draws/Logs?drawEventId=@ev.Id">추첨 이력 보기</a>
         <a class="btn" href="/Odds?code=@ev.Code" target="_blank">공시 페이지 열기</a>
+        @if (Actor.CanEdit)
+        {
+            <a class="btn" href="/Draws/Weights?id=@ev.Id">확률 변경</a>
+        }
     </p>
 </div>
+
+@if (Model.PendingApprovals > 0)
+{
+    <div class="alert warn">
+        <strong>승인 대기 중인 확률 변경이 @Model.PendingApprovals 건 있습니다.</strong>
+        적용되기 전까지 현재 확률은 그대로입니다.
+        <a href="/Draws/Approvals?drawEventId=@ev.Id">승인 화면으로</a>
+    </div>
+}
 
 <div class="card">
     <h2>확률 버전 <span class="hint">append-only — 과거 추첨은 자기가 쓴 버전을 계속 가리킵니다</span></h2>
@@ -161,7 +174,8 @@
                         <option value="">전체 경품</option>
                         @foreach (var p in Model.Prizes.Where(p => !p.IsBlank))
                         {
-                            <option value="@p.Id">@p.SlotIndex번 · @p.Name</option>
+                            @* 괄호가 필요하다 — Razor 는 한글도 식별자 문자로 보므로 @@p.SlotIndex번 이 멤버 이름이 된다. *@
+                            <option value="@p.Id">@(p.SlotIndex)번 · @p.Name</option>
                         }
                     </select>
                 </div>
