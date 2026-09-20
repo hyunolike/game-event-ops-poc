@@ -47,4 +47,10 @@ public enum OperationAction : byte
     DrawTicketsGranted = 13,
     /// <summary>미수령 보상 우편 회수. 이미 수령한 우편은 대상이 아니다.</summary>
     DrawRewardsRevoked = 14,
+
+    // 2인 승인(maker-checker). 요청·승인·반려를 따로 남겨야 "누가 올리고 누가 통과시켰는가" 가 보인다.
+    DrawWeightChangeRequested = 15,
+    DrawWeightChangeApproved = 16,
+    DrawWeightChangeRejected = 17,
+    DrawWeightChangeCancelled = 18,
 }

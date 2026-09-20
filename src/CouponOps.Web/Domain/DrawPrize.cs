@@ -81,6 +81,13 @@ public class DrawPrize
     /// </summary>
     internal void ChangeWeight(int weight) => Weight = weight;
 
+    /// <summary>
+    /// 미리보기 전용. 추적되지 않는(AsNoTracking) 사본에 제안된 가중치를 얹어
+    /// 확률·시뮬레이션을 계산할 때만 쓴다 — 저장 경로에서는 <see cref="ChangeWeight"/> 를 쓴다.
+    /// 이름을 나눠 두는 이유는, 미리보기가 실수로 저장 경로에 섞여 들어가는 것을 막기 위해서다.
+    /// </summary>
+    public void ApplyPreviewWeight(int weight) => Weight = weight;
+
     /// <summary>저장으로 Id 가 확보된 뒤 슬롯 위치를 실제 FK 로 해소한다.</summary>
     internal void ResolveFallback(IReadOnlyDictionary<int, long> idBySlot) =>
         FallbackPrizeId = FallbackSlotIndex is { } slot ? idBySlot[slot] : null;

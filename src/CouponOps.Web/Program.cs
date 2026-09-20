@@ -69,6 +69,7 @@ builder.Services.AddScoped<EventAdminService>();
 builder.Services.AddScoped<SpinDrawService>();
 builder.Services.AddScoped<DrawAdminService>();
 builder.Services.AddScoped<DrawMailService>();
+builder.Services.AddScoped<DrawApprovalService>();
 
 builder.Services.AddHostedService<IssuancePersistenceWorker>();
 builder.Services.AddHostedService<DrawPersistenceWorker>();

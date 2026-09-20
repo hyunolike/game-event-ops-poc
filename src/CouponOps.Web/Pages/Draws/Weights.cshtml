@@ -1,0 +1,159 @@
+@page
+@model CouponOps.Pages.Draws.WeightsModel
+@{
+    ViewData["Title"] = "확률 변경";
+    var ev = Model.Event!;
+}
+
+<h1>확률 변경 — @ev.Name</h1>
+<p class="sub mono">@ev.Code</p>
+
+@if (Model.RequiresApproval)
+{
+    <div class="alert info">
+        <strong>이미 시작된 이벤트입니다.</strong>
+        확률 변경은 <strong>다른 편집자의 승인</strong>이 있어야 적용됩니다 — 본인은 승인할 수 없습니다.
+        변경은 기존 표를 덮어쓰지 않고 <strong>새 버전</strong>으로 활성화되므로, 과거 추첨은 그대로 설명됩니다.
+    </div>
+}
+else
+{
+    <div class="alert info">
+        아직 시작 전이라 아무도 추첨하지 않았습니다. 승인 없이 바로 적용됩니다.
+    </div>
+}
+
+@if (Model.PendingCount > 0)
+{
+    <div class="alert warn">
+        이 이벤트에 승인 대기 중인 변경이 @Model.PendingCount 건 있습니다.
+        <a href="/Draws/Approvals?drawEventId=@ev.Id">승인 화면으로</a>
+    </div>
+}
+
+@if (Model.Errors.Count > 0)
+{
+    <div class="alert error">
+        <ul>@foreach (var e in Model.Errors) { <li>@e</li> }</ul>
+    </div>
+}
+
+<form method="post">
+    <div class="card">
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th class="num">슬롯</th>
+                    <th>경품</th>
+                    <th class="num">현재 가중치</th>
+                    <th class="num">현재 확률</th>
+                    <th class="num">새 가중치</th>
+                    <th class="num">새 확률</th>
+                </tr>
+                </thead>
+                <tbody>
+                @for (var i = 0; i < Model.Prizes.Count; i++)
+                {
+                    var current = Model.CurrentOdds.Single(o => o.SlotIndex == i);
+                    var proposed = Model.ProposedOdds.FirstOrDefault(o => o.SlotIndex == i);
+                    <tr>
+                        <td class="num mono">@i</td>
+                        <td>
+                            @current.Name
+                            @if (current.IsJackpot) { <span class="badge warn">잭팟</span> }
+                            @if (current.IsBlank) { <span class="badge">꽝</span> }
+                        </td>
+                        <td class="num mono">@current.Weight.ToString("N0")</td>
+                        <td class="num mono">@current.Percent.ToString("F2")%</td>
+                        <td class="num">
+                            <input name="Weights[@i]" type="number" min="1"
+                                   value="@(i < Model.Weights.Count ? Model.Weights[i] : current.Weight)" required />
+                        </td>
+                        <td class="num mono">
+                            @if (proposed is not null)
+                            {
+                                <strong>@proposed.Percent.ToString("F2")%</strong>
+                            }
+                            else
+                            {
+                                <span class="hint">—</span>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="form-grid">
+            <div class="grow">
+                <label for="reason">변경 사유 <span class="hint">필수 · 확률표 버전에 그대로 남습니다</span></label>
+                <input id="reason" name="Reason" value="@Model.Reason" maxlength="500" required />
+            </div>
+            <div>
+                <label for="sim">시뮬레이션 횟수</label>
+                <input id="sim" name="SimulationDraws" type="number" min="1" value="@Model.SimulationDraws" />
+            </div>
+        </div>
+
+        <div class="actions">
+            <button type="submit" asp-page-handler="Preview">새 확률 계산</button>
+            <a class="btn" href="/Draws/Details?id=@ev.Id">취소</a>
+        </div>
+    </div>
+
+    @if (Model.Simulation is not null)
+    {
+        <div class="card">
+            <h2>변경 후 예상</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th class="num">슬롯</th>
+                        <th>경품</th>
+                        <th class="num">확률</th>
+                        <th class="num">기대 당첨</th>
+                        <th class="num">예상 지급</th>
+                        <th class="num">대체 치환</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var row in Model.Simulation.Rows)
+                    {
+                        <tr>
+                            <td class="num mono">@row.SlotIndex</td>
+                            <td>@row.Name</td>
+                            <td class="num mono"><strong>@row.Percent.ToString("F2")%</strong></td>
+                            <td class="num mono">@row.ExpectedDraws.ToString("N1")</td>
+                            <td class="num mono">@row.ExpectedGrants.ToString("N0")</td>
+                            <td class="num mono">@(row.OverflowDraws == 0 ? "-" : row.OverflowDraws.ToString("N0"))</td>
+                        </tr>
+                    }
+                    </tbody>
+                    <tfoot>
+                    <tr>
+                        <th colspan="2">합계</th>
+                        <th class="num mono">@DrawOdds.Sum(Model.ProposedOdds).ToString("F2")%</th>
+                        <th colspan="3"></th>
+                    </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            @if (Model.Simulation.Warnings.Count > 0)
+            {
+                <div class="alert warn">
+                    <ul>@foreach (var w in Model.Simulation.Warnings) { <li>@w</li> }</ul>
+                </div>
+            }
+
+            <div class="actions">
+                <button class="primary" type="submit" asp-page-handler="Request">
+                    @(Model.RequiresApproval ? "변경 요청 (승인 필요)" : "바로 적용")
+                </button>
+            </div>
+        </div>
+    }
+</form>

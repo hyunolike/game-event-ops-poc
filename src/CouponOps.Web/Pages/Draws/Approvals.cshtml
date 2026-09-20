@@ -1,0 +1,93 @@
+@page
+@model CouponOps.Pages.Draws.ApprovalsModel
+@{
+    ViewData["Title"] = "확률 변경 승인";
+}
+
+<h1>확률 변경 승인</h1>
+<p class="sub">
+    이미 시작된 이벤트의 확률 변경은 <strong>등록자와 다른 편집자</strong>가 승인해야 적용됩니다.
+    자기가 올린 것을 자기가 통과시킬 수 있으면 절차는 형식일 뿐입니다.
+</p>
+
+@if (TempData["Flash"] is string flash)
+{
+    <div class="alert success">@flash</div>
+}
+@if (Model.Error is not null)
+{
+    <div class="alert error">@Model.Error</div>
+}
+
+@if (Model.Rows.Count == 0)
+{
+    <div class="card"><div class="empty">승인 대기 중인 확률 변경이 없습니다.</div></div>
+}
+
+@foreach (var row in Model.Rows)
+{
+    <div class="card">
+        <h2>
+            <a href="/Draws/Details?id=@row.DrawEventId">@row.EventName</a>
+            <span class="mono hint">@row.EventCode</span>
+        </h2>
+        <div class="stats">
+            <div class="stat"><span class="label">요청자</span><span class="value">@row.RequestedByLoginId</span></div>
+            <div class="stat"><span class="label">요청 시각 (KST)</span><span class="value mono">@KoreaTime.Format(row.RequestedAt)</span></div>
+        </div>
+        <p><strong>사유</strong> — @row.Reason</p>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th class="num">슬롯</th>
+                    <th>경품</th>
+                    <th class="num">현재 가중치</th>
+                    <th class="num">요청 가중치</th>
+                    <th class="num">배율</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var c in row.Changes)
+                {
+                    var ratio = c.CurrentWeight == 0 ? 0m : (decimal)c.RequestedWeight / c.CurrentWeight;
+                    <tr>
+                        <td class="num mono">@c.SlotIndex</td>
+                        <td>@c.Name</td>
+                        <td class="num mono">@c.CurrentWeight.ToString("N0")</td>
+                        <td class="num mono"><strong>@c.RequestedWeight.ToString("N0")</strong></td>
+                        @* 배율을 함께 보여준다. 5 → 50 같은 자릿수 실수는 절대값보다 배율에서 먼저 보인다. *@
+                        <td class="num mono @(ratio >= 5m || (ratio > 0m && ratio <= 0.2m) ? "warn" : "")">
+                            ×@ratio.ToString("0.##")
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+            @if (row.Changes.Count == 0)
+            {
+                <div class="empty">바뀌는 슬롯이 없습니다(현재 값과 동일). 반려하세요.</div>
+            }
+        </div>
+
+        @if (Model.CanEdit)
+        {
+            <form method="post" class="filters">
+                <input type="hidden" name="ApprovalId" value="@row.Id" />
+                <input type="hidden" name="DrawEventId" value="@Model.DrawEventId" />
+                <div class="grow">
+                    <label for="note-@row.Id">의견 <span class="hint">승인·반려 기록에 남습니다</span></label>
+                    <input id="note-@row.Id" name="Note" maxlength="500" />
+                </div>
+                <button class="primary" type="submit" asp-page-handler="Approve"
+                        onclick="return confirm('승인하면 새 확률표가 즉시 활성화됩니다. 계속할까요?');">승인</button>
+                <button type="submit" asp-page-handler="Reject">반려</button>
+                <button class="danger" type="submit" asp-page-handler="Cancel">요청 철회</button>
+            </form>
+            <p class="hint">
+                본인이 올린 요청은 승인·반려할 수 없습니다(철회만 가능). 다른 편집자가 결정해야 합니다.
+            </p>
+        }
+    </div>
+}

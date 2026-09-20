@@ -1,7 +1,13 @@
 @inject ICurrentActor Actor
 @{
-    string Nav(string path) =>
-        (ViewContext.HttpContext.Request.Path.StartsWithSegments(path) ? "active" : "");
+    // except 는 더 구체적인 메뉴가 있는 경로를 상위 메뉴에서 제외한다 —
+    // 없으면 /Draws/Approvals 에서 "룰렛" 과 "승인" 이 동시에 활성으로 보인다.
+    string Nav(string path, string? except = null)
+    {
+        var current = ViewContext.HttpContext.Request.Path;
+        if (except is not null && current.StartsWithSegments(except)) return "";
+        return current.StartsWithSegments(path) ? "active" : "";
+    }
 }
 <!DOCTYPE html>
 <html lang="ko">
@@ -19,7 +25,8 @@
         <nav>
             <a class="@Nav("/Events")" href="/Events">쿠폰 이벤트</a>
             <a class="@Nav("/Issuances")" href="/Issuances">발급 이력</a>
-            <a class="@Nav("/Draws")" href="/Draws">룰렛</a>
+            <a class="@Nav("/Draws", except: "/Draws/Approvals")" href="/Draws">룰렛</a>
+            <a class="@Nav("/Draws/Approvals")" href="/Draws/Approvals">승인</a>
             <a class="@Nav("/OperationLogs")" href="/OperationLogs">운영 로그</a>
         </nav>
         <div class="who">

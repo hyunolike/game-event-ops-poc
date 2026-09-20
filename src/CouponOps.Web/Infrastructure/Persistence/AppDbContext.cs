@@ -20,6 +20,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<DrawWeightVersion> DrawWeightVersions => Set<DrawWeightVersion>();
     public DbSet<DrawLog> DrawLogs => Set<DrawLog>();
     public DbSet<DrawRewardMail> DrawRewardMails => Set<DrawRewardMail>();
+    public DbSet<DrawApproval> DrawApprovals => Set<DrawApproval>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -228,6 +229,29 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // 유저의 미수령 우편 목록 — 게임 클라이언트가 가장 자주 하는 질의다.
             e.HasIndex(x => new { x.UserId, x.DrawEventId })
              .HasFilter("[ClaimedAt] IS NULL AND [RevokedAt] IS NULL");
+        });
+
+        b.Entity<DrawApproval>(e =>
+        {
+            e.ToTable("DrawApprovals");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.PayloadJson).IsRequired();
+            e.Property(x => x.RequestedByLoginId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.RequestReason).HasMaxLength(500).IsRequired();
+            e.Property(x => x.DecidedByLoginId).HasMaxLength(64);
+            e.Property(x => x.DecisionNote).HasMaxLength(500);
+            e.Property(x => x.RequestedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.DecidedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne<DrawEvent>().WithMany()
+             .HasForeignKey(x => x.DrawEventId).OnDelete(DeleteBehavior.Cascade);
+
+            // 대기 중인 요청 조회가 이 화면의 전부다. 결정된 건은 소수가 아니라 다수가 되므로
+            // 필터드 인덱스로 대기분만 담는다 — 시간이 지나도 커지지 않는다.
+            e.HasIndex(x => new { x.DrawEventId, x.Status })
+             .HasFilter("[Status] = 0");
+            e.HasIndex(x => x.RequestedAt);
         });
 
         b.Entity<AdminUser>(e =>

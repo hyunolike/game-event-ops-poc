@@ -312,6 +312,73 @@ namespace CouponOps.Web.Infrastructure.Persistence.Migrations
                     b.ToTable("OperationLogs", (string)null);
                 });
 
+            modelBuilder.Entity("CouponOps.Domain.DrawApproval", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("BaseWeightVersionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<long?>("DecidedByAdminId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("DecidedByLoginId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("DecisionNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long>("DrawEventId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequestReason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<long>("RequestedByAdminId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RequestedByLoginId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("tinyint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedAt");
+
+                    b.HasIndex("DrawEventId", "Status")
+                        .HasFilter("[Status] = 0");
+
+                    b.ToTable("DrawApprovals", (string)null);
+                });
+
             modelBuilder.Entity("CouponOps.Domain.DrawEvent", b =>
                 {
                     b.Property<long>("Id")
@@ -654,6 +721,15 @@ namespace CouponOps.Web.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("EventId")
                         .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawApproval", b =>
+                {
+                    b.HasOne("CouponOps.Domain.DrawEvent", null)
+                        .WithMany()
+                        .HasForeignKey("DrawEventId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

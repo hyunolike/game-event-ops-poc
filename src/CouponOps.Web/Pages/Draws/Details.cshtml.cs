@@ -34,6 +34,7 @@ public sealed class DetailsModel(
     public long PersistedLogs { get; private set; }
     public int UnclaimedMails { get; private set; }
     public int ClaimedMails { get; private set; }
+    public int PendingApprovals { get; private set; }
     public List<OperationLog> RecentOperations { get; private set; } = [];
     public string? Error { get; private set; }
 
@@ -151,6 +152,9 @@ public sealed class DetailsModel(
             .CountAsync(m => m.DrawEventId == Id && m.ClaimedAt == null && m.RevokedAt == null, ct);
         ClaimedMails = await db.DrawRewardMails
             .CountAsync(m => m.DrawEventId == Id && m.ClaimedAt != null, ct);
+
+        PendingApprovals = await db.DrawApprovals
+            .CountAsync(a => a.DrawEventId == Id && a.Status == ApprovalStatus.Pending, ct);
 
         RecentOperations = await db.OperationLogs.AsNoTracking()
             .Where(o => o.TargetType == nameof(DrawEvent) && o.TargetId == Id.ToString())

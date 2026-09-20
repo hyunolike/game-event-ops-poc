@@ -30,7 +30,12 @@ public static class AdminUserSeeder
             return AdminUser.Create(loginId, hasher.HashPassword(user, seedPassword), role, now);
         }
 
-        db.AdminUsers.AddRange(Make("admin", AdminRole.Editor), Make("viewer", AdminRole.Viewer));
+        // 편집자가 둘이다. 2인 승인(maker-checker)은 등록자와 다른 편집자가 있어야 성립하는데,
+        // 계정이 하나뿐이면 그 절차를 켜 봤자 아무도 승인할 수 없다.
+        db.AdminUsers.AddRange(
+            Make("admin", AdminRole.Editor),
+            Make("admin2", AdminRole.Editor),
+            Make("viewer", AdminRole.Viewer));
         await db.SaveChangesAsync(ct);
     }
 }
