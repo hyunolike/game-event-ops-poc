@@ -190,6 +190,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(x => x.Id);
             e.Property(x => x.UserId).HasMaxLength(64).IsRequired();
             e.Property(x => x.PrizeName).HasMaxLength(200);
+            e.Property(x => x.ClientIp).HasMaxLength(45);   // IPv6 최대 길이
             e.Property(x => x.FailureDetail).HasMaxLength(500);
             e.Property(x => x.RequestedAt).HasColumnType("datetime2(3)");
             e.Property(x => x.PersistedAt).HasColumnType("datetime2(3)");
@@ -206,7 +207,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(x => new { x.UserId, x.RequestedAt });
             // 경품별 당첨 조회 + 이상 탐지(같은 유저의 잭팟 연속 당첨). 성공 행만 담는다.
             e.HasIndex(x => new { x.DrawEventId, x.PrizeId, x.RequestedAt })
-             .HasFilter("[Result] = 1");
+             .HasFilter("[Result] = 1")
+             .IncludeProperties(x => new { x.UserId, x.ClientIp });
         });
 
         b.Entity<DrawRewardMail>(e =>

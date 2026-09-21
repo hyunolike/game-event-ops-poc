@@ -6,7 +6,9 @@ using CouponOps.Infrastructure.Redis;
 using CouponOps.Infrastructure.Workers;
 using System.Text.Encodings.Web;
 using System.Text.Unicode;
+using System.Net;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.WebEncoders;
@@ -24,6 +26,45 @@ builder.Services.Configure<IssuanceOptions>(
 
 builder.Services.Configure<DrawOptions>(
     builder.Configuration.GetSection(DrawOptions.SectionName));
+
+builder.Services.Configure<NetworkOptions>(
+    builder.Configuration.GetSection(NetworkOptions.SectionName));
+
+// ── 클라이언트 IP ──────────────────────────────────────────────────────────
+// 프록시 뒤에서 X-Forwarded-For 를 검증 없이 믿으면 누구나 자기 IP 를 위조할 수 있고,
+// 그러면 이상 탐지의 IP 축은 남에게 혐의를 씌우는 도구가 된다.
+// 신뢰할 프록시를 명시적으로 적은 경우에만 헤더를 해석한다.
+//
+// 이 compose 구성에서 앱 포트(8081)가 직접 노출돼 있다는 점에 주의한다 — 배포 스크립트가
+// 색깔별로 헬스체크하기 위한 것이지만, 그 포트에 닿을 수 있는 쪽은 헤더를 위조할 수 있다.
+// 운영에서는 앱 포트를 프록시만 접근 가능한 망에 둔다.
+var network = builder.Configuration.GetSection(NetworkOptions.SectionName).Get<NetworkOptions>()
+              ?? new NetworkOptions();
+
+if (network.IsBehindTrustedProxy)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(o =>
+    {
+        o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+        // 기본값은 루프백만 신뢰한다. 컨테이너 프록시는 루프백이 아니므로 비우고 명시한 것만 넣는다.
+        o.KnownProxies.Clear();
+        o.KnownNetworks.Clear();
+
+        foreach (var ip in network.TrustedProxies)
+            if (IPAddress.TryParse(ip, out var parsed)) o.KnownProxies.Add(parsed);
+
+        foreach (var cidr in network.TrustedProxyNetworks)
+        {
+            var parts = cidr.Split('/');
+            if (parts.Length == 2
+                && IPAddress.TryParse(parts[0], out var prefix)
+                && int.TryParse(parts[1], out var length))
+                // .NET 8 에는 System.Net.IPNetwork 도 있어 단순 이름은 모호하다. 명시적으로 쓴다.
+                o.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(prefix, length));
+        }
+    });
+}
 
 builder.Services.AddSingleton(TimeProvider.System);
 
@@ -105,6 +146,9 @@ builder.Services.AddRazorPages(o =>
 });
 
 var app = builder.Build();
+
+// 인증·라우팅보다 먼저 와야 한다. 이후 단계가 보는 RemoteIpAddress 가 실제 클라이언트여야 하기 때문이다.
+if (network.IsBehindTrustedProxy) app.UseForwardedHeaders();
 
 app.UseStaticFiles();
 app.UseRouting();

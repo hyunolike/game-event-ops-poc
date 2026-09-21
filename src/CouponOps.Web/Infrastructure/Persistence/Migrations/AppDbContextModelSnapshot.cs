@@ -467,6 +467,10 @@ namespace CouponOps.Web.Infrastructure.Persistence.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("ClientIp")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
                     b.Property<long>("DrawEventId")
                         .HasColumnType("bigint");
 
@@ -547,6 +551,8 @@ namespace CouponOps.Web.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("DrawEventId", "PrizeId", "RequestedAt")
                         .HasFilter("[Result] = 1");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("DrawEventId", "PrizeId", "RequestedAt"), new[] { "UserId", "ClientIp" });
 
                     b.ToTable("DrawLogs", (string)null);
                 });

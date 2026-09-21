@@ -36,6 +36,7 @@ public sealed class DetailsModel(
     public int ClaimedMails { get; private set; }
     public int PendingApprovals { get; private set; }
     public IReadOnlyList<AnomalyRow> Anomalies { get; private set; } = [];
+    public bool ClientIpUsable { get; private set; }
     public List<OperationLog> RecentOperations { get; private set; } = [];
     public string? Error { get; private set; }
 
@@ -158,6 +159,7 @@ public sealed class DetailsModel(
             .CountAsync(a => a.DrawEventId == Id && a.Status == ApprovalStatus.Pending, ct);
 
         Anomalies = await anomalies.ScanAsync(Id, ct);
+        ClientIpUsable = anomalies.ClientIpUsable;
 
         RecentOperations = await db.OperationLogs.AsNoTracking()
             .Where(o => o.TargetType == nameof(DrawEvent) && o.TargetId == Id.ToString())

@@ -26,6 +26,18 @@ public sealed class DrawAnomalyTests(CouponOpsFixture fx)
         return await detector.ScanAsync(drawEventId, CancellationToken.None);
     }
 
+    /// <summary>
+    /// 임계치·IP 신뢰 여부를 테스트가 정해 탐지기를 직접 만든다.
+    /// 기본값(5분 100회 등)을 실제로 채우려면 테스트가 100번을 돌려야 하고,
+    /// 그 시간은 단언이 확인하려는 것과 아무 상관이 없다.
+    /// </summary>
+    private DrawAnomalyDetector Detector(
+        IServiceScope scope, DrawOptions? draw = null, bool clientIpTrusted = true) =>
+        new(scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+            Options.Create(draw ?? new DrawOptions()),
+            Options.Create(new NetworkOptions { ClientIpTrusted = clientIpTrusted }),
+            scope.ServiceProvider.GetRequiredService<TimeProvider>());
+
     /// <summary>슬롯 0 이 잭팟인 구성. 재고를 넉넉히 줘 대체 치환이 끼어들지 않게 한다.</summary>
     private static List<DrawPrize> JackpotAlwaysPrizes() => DrawTestData.ScarcePrizes(stock: 100);
 
@@ -113,20 +125,61 @@ public sealed class DrawAnomalyTests(CouponOpsFixture fx)
 
         await fx.WaitForDrawLogsAsync(ev.Id, 6, TimeSpan.FromSeconds(30));
 
-        // 임계치를 이 테스트에서만 낮춘다. 기본값(5분에 100회)을 실제로 채우려면 100번을 돌려야 하고,
-        // 그 시간은 이 단언이 확인하려는 것과 아무 상관이 없다.
         using var scope = fx.CreateScope();
-        var detector = new DrawAnomalyDetector(
-            scope.ServiceProvider.GetRequiredService<AppDbContext>(),
-            Options.Create(new DrawOptions { BurstThreshold = 5 }),
-            scope.ServiceProvider.GetRequiredService<TimeProvider>());
-
-        var rows = await detector.ScanAsync(ev.Id, CancellationToken.None);
+        var rows = await Detector(scope, new DrawOptions { BurstThreshold = 5 })
+            .ScanAsync(ev.Id, CancellationToken.None);
 
         var burst = rows.Where(r => r.Kind == AnomalyKind.DrawBurst).ToList();
         burst.Should().ContainSingle();
         burst[0].UserId.Should().Be("macro-user");
         burst[0].Count.Should().BeGreaterThanOrEqualTo(6);
         burst[0].Detail.Should().Contain("시도");
+    }
+
+    [Fact(DisplayName = "같은 IP 에서 여러 계정이 잭팟을 받으면 다계정으로 띄운다")]
+    public async Task Multiple_accounts_from_one_ip_are_surfaced()
+    {
+        var ev = await fx.CreateActiveDrawAsync(
+            prizes: JackpotAlwaysPrizes(),
+            dailyDrawLimit: 10, ticketItemId: null, ticketCost: 0);
+
+        // 한 IP 에서 계정 셋, 다른 IP 에서 하나.
+        foreach (var user in (string[])["alt-a", "alt-b", "alt-c"])
+            await fx.SpinDirectAsync(ev.Id, user, AlwaysSlotZero, clientIp: "203.0.113.7");
+
+        await fx.SpinDirectAsync(ev.Id, "normal-user", AlwaysSlotZero, clientIp: "198.51.100.9");
+
+        await fx.WaitForDrawLogsAsync(ev.Id, 4, TimeSpan.FromSeconds(30));
+
+        using var scope = fx.CreateScope();
+        var rows = await Detector(scope).ScanAsync(ev.Id, CancellationToken.None);
+
+        var multi = rows.Where(r => r.Kind == AnomalyKind.MultiAccountIp).ToList();
+        multi.Should().ContainSingle("임계치(3개)를 넘긴 IP 는 하나뿐이다");
+        multi[0].UserId.Should().Be("203.0.113.7");
+        multi[0].Count.Should().Be(3);
+        multi[0].Detail.Should().Contain("alt-a");
+    }
+
+    [Fact(DisplayName = "IP 를 믿을 수 없는 배포에서는 IP 축을 아예 돌리지 않는다")]
+    public async Task The_ip_axis_is_skipped_when_the_ip_cannot_be_trusted()
+    {
+        var ev = await fx.CreateActiveDrawAsync(
+            prizes: JackpotAlwaysPrizes(),
+            dailyDrawLimit: 10, ticketItemId: null, ticketCost: 0);
+
+        // 프록시 뒤에서 신뢰 설정이 없으면 전원이 같은 IP 로 보인다. 그대로 돌리면 전원이 뜬다.
+        foreach (var user in (string[])["p-a", "p-b", "p-c", "p-d"])
+            await fx.SpinDirectAsync(ev.Id, user, AlwaysSlotZero, clientIp: "10.0.0.1");
+
+        await fx.WaitForDrawLogsAsync(ev.Id, 4, TimeSpan.FromSeconds(30));
+
+        using var scope = fx.CreateScope();
+        var detector = Detector(scope, clientIpTrusted: false);
+
+        detector.ClientIpUsable.Should().BeFalse();
+        (await detector.ScanAsync(ev.Id, CancellationToken.None))
+            .Where(r => r.Kind == AnomalyKind.MultiAccountIp)
+            .Should().BeEmpty("믿을 수 없는 신호를 띄우면 운영자는 그 화면 전체를 신뢰하지 않게 된다");
     }
 }

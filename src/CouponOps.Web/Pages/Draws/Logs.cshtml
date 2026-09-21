@@ -80,6 +80,7 @@
             <th>경품</th>
             <th class="num">roll</th>
             <th>비고</th>
+            <th>IP <span class="hint">다계정 확인용</span></th>
             <th class="num">적재 지연</th>
             <th></th>
         </tr>
@@ -101,6 +102,7 @@
                     @if (row.PityApplied) { <span class="badge info">천장</span> }
                     @if (row.TicketsSpent > 0) { <span class="hint">티켓 -@row.TicketsSpent</span> }
                 </td>
+                <td class="mono">@(row.ClientIp ?? "-")</td>
                 <td class="num mono">@row.PersistenceLagMs ms</td>
                 <td>
                     @if (row.Result == DrawResult.Won)

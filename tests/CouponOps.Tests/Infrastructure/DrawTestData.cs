@@ -121,7 +121,8 @@ public static class DrawTestData
     /// 난수를 테스트가 정하므로 결과가 결정적이다 — 분포 검정이 CI 에서 간헐적으로 실패하지 않는다.
     /// </summary>
     public static async Task<DrawOutcome> SpinDirectAsync(
-        this CouponOpsFixture fx, long drawEventId, string userId, long randomValue, Guid? requestId = null)
+        this CouponOpsFixture fx, long drawEventId, string userId, long randomValue,
+        Guid? requestId = null, string? clientIp = null)
     {
         using var scope = fx.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDrawStore>();
@@ -133,7 +134,8 @@ public static class DrawTestData
 
         return await store.SpinAsync(
             drawEventId, userId, requestId ?? Guid.NewGuid(), now,
-            randomValue, DrawDay.For(now, meta.DailyResetAt), logFailure: true, CancellationToken.None);
+            randomValue, DrawDay.For(now, meta.DailyResetAt), logFailure: true, clientIp,
+            CancellationToken.None);
     }
 
     /// <summary>보상 우편이 기대 건수만큼 적재될 때까지 기다린다. 적재는 비동기다.</summary>

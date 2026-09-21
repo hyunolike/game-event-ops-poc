@@ -111,6 +111,15 @@
 <div class="card">
     <h2>이상 징후 <span class="hint">부정 판정이 아니라 "봐야 할 것" 입니다</span></h2>
 
+    @if (!Model.ClientIpUsable)
+    {
+        <p class="hint">
+            IP 축(다계정 판별)은 돌리지 않았습니다 — 신뢰할 프록시가 설정되지 않아
+            모든 요청이 프록시 IP 하나로 보입니다. 그 상태로 돌리면 전원이 이상 징후로 뜹니다.
+            <span class="mono">Network:TrustedProxyNetworks</span> 를 설정하면 켜집니다.
+        </p>
+    }
+
     @if (Model.Anomalies.Count == 0)
     {
         <div class="empty">임계치를 넘는 패턴이 없습니다.</div>
@@ -124,7 +133,7 @@
         <div class="table-wrap">
             <table>
                 <thead>
-                <tr><th>유형</th><th>유저</th><th class="num">횟수</th><th>내용</th><th></th></tr>
+                <tr><th>유형</th><th>대상 <span class="hint">유저 또는 IP</span></th><th class="num">횟수</th><th>내용</th><th></th></tr>
                 </thead>
                 <tbody>
                 @foreach (var a in Model.Anomalies)
@@ -134,7 +143,17 @@
                         <td class="mono">@a.UserId</td>
                         <td class="num mono">@a.Count.ToString("N0")</td>
                         <td>@a.Detail</td>
-                        <td><a href="/Draws/Logs?drawEventId=@ev.Id&amp;userId=@a.UserId">이력 보기</a></td>
+                        <td>
+                            @if (a.Kind == AnomalyKind.MultiAccountIp)
+                            {
+                                @* IP 는 유저 필터에 넣을 값이 아니다. 이벤트 전체 이력으로 보낸다. *@
+                                <a href="/Draws/Logs?drawEventId=@ev.Id">이력 보기</a>
+                            }
+                            else
+                            {
+                                <a href="/Draws/Logs?drawEventId=@ev.Id&amp;userId=@a.UserId">이력 보기</a>
+                            }
+                        </td>
                     </tr>
                 }
                 </tbody>
@@ -352,6 +371,7 @@
     {
         AnomalyKind.JackpotRepeat => "잭팟 반복",
         AnomalyKind.DrawBurst => "추첨 폭주",
+        AnomalyKind.MultiAccountIp => "다계정 의심",
         _ => k.ToString(),
     };
 

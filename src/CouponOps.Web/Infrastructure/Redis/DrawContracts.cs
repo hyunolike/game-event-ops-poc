@@ -35,4 +35,4 @@ public sealed record DrawnEntry(
     long PrizeId, long OriginalPrizeId, long ItemId, int ItemQty,
     int TicketsSpent, bool FallbackApplied, bool PityApplied, int PityCountAfter,
     long WeightVersionId, long RandomValue, int Roll, int TotalWeight,
-    DateTime RequestedAtUtc);
+    string? ClientIp, DateTime RequestedAtUtc);

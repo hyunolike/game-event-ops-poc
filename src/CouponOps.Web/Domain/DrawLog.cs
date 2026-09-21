@@ -44,6 +44,16 @@ public class DrawLog
     public int TicketsSpent { get; private set; }
     public int PityCountAfter { get; private set; }
 
+    /// <summary>
+    /// 요청을 보낸 클라이언트 IP. 신뢰할 프록시가 설정된 배포에서만 의미가 있다
+    /// (Application 계층의 <c>NetworkOptions</c> 참조).
+    /// </summary>
+    /// <remarks>
+    /// 개인정보다. 이상 탐지(다계정 판별) 외의 용도로 쓰지 않고, 이력 보존 기간이 지나면 함께 사라진다.
+    /// IPv6 최대 길이(45자)에 맞춘다.
+    /// </remarks>
+    public string? ClientIp { get; private set; }
+
     public DateTime RequestedAt { get; private set; }
     public DateTime PersistedAt { get; private set; }
     /// <summary>비동기 적재 지연(ms). Redis 가 source of truth 이고 DB 는 뒤따라온다.</summary>
@@ -55,7 +65,8 @@ public class DrawLog
         long? weightVersionId, long randomValue, int totalWeight, int roll,
         long? prizeId, long? originalPrizeId, bool fallbackApplied, bool pityApplied,
         string? prizeName, long? itemId, int itemQty, int ticketsSpent, int pityCountAfter,
-        DateTime requestedAtUtc, DateTime persistedAtUtc, string? failureDetail = null) =>
+        DateTime requestedAtUtc, DateTime persistedAtUtc, string? clientIp = null,
+        string? failureDetail = null) =>
         new()
         {
             RequestId = requestId, DrawEventId = drawEventId, UserId = userId, Result = result,
@@ -65,6 +76,7 @@ public class DrawLog
             FallbackApplied = fallbackApplied, PityApplied = pityApplied,
             PrizeName = prizeName, ItemId = itemId, ItemQty = itemQty,
             TicketsSpent = ticketsSpent, PityCountAfter = pityCountAfter,
+            ClientIp = clientIp,
             RequestedAt = requestedAtUtc, PersistedAt = persistedAtUtc,
             PersistenceLagMs = (int)(persistedAtUtc - requestedAtUtc).TotalMilliseconds,
             FailureDetail = failureDetail,

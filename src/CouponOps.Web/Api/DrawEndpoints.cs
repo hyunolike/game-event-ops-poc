@@ -44,6 +44,7 @@ public static class DrawEndpoints
     private static async Task<IResult> SpinAsync(
         long drawEventId,
         SpinRequest request,
+        HttpContext http,
         SpinDrawService service,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
@@ -53,7 +54,11 @@ public static class DrawEndpoints
 
         try
         {
-            var r = await service.SpinAsync(drawEventId, request.UserId, request.RequestId, ct);
+            // 신뢰할 프록시가 설정돼 있으면 ForwardedHeaders 미들웨어가 이 값을 실제 클라이언트로
+            // 바꿔 둔다(Program.cs 참조). 설정이 없으면 프록시 IP 이고, 탐지 쪽이 그것을 걸러 쓴다.
+            var clientIp = http.Connection.RemoteIpAddress?.ToString();
+
+            var r = await service.SpinAsync(drawEventId, request.UserId, request.RequestId, clientIp, ct);
 
             var body = new SpinResponse(
                 Result: r.Result.ToString(),

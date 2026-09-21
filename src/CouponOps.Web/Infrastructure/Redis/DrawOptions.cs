@@ -33,4 +33,10 @@ public sealed class DrawOptions
 
     /// <summary>한 유저가 <see cref="BurstWindow"/> 안에 이 횟수를 넘겨 돌리면 이상 징후로 본다.</summary>
     public int BurstThreshold { get; set; } = 100;
+
+    /// <summary>
+    /// 같은 IP 에서 잭팟을 받은 서로 다른 유저가 이 수에 이르면 다계정 의심으로 본다.
+    /// 가족·PC방·회사 공유 IP 도 같은 모양이므로 판정이 아니라 확인 대상일 뿐이다.
+    /// </summary>
+    public int MultiAccountIpThreshold { get; set; } = 3;
 }

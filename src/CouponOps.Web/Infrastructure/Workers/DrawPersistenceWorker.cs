@@ -112,7 +112,7 @@ public sealed class DrawPersistenceWorker(
                 prizeName: prizeMeta?.Name,
                 itemId: e.ItemId > 0 ? e.ItemId : null, itemQty: e.ItemQty,
                 ticketsSpent: e.TicketsSpent, pityCountAfter: e.PityCountAfter,
-                requestedAtUtc: e.RequestedAtUtc, persistedAtUtc: now));
+                requestedAtUtc: e.RequestedAtUtc, persistedAtUtc: now, clientIp: e.ClientIp));
 
             // 꽝은 우편을 만들지 않는다 — 보낼 것이 없다.
             // 경품 메타를 모르면(캐시 미스·삭제된 경품) 우편을 만들지 않고 경고만 남긴다.

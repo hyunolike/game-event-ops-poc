@@ -12,6 +12,8 @@ public enum AnomalyKind
     JackpotRepeat = 0,
     /// <summary>짧은 시간 안의 추첨 폭주. 매크로·오토의 전형적인 모양이다.</summary>
     DrawBurst = 1,
+    /// <summary>같은 IP 에서 여러 계정이 잭팟을 받았다. 다계정의 전형적인 모양이다.</summary>
+    MultiAccountIp = 2,
 }
 
 public sealed record AnomalyRow(AnomalyKind Kind, string UserId, int Count, string Detail);
@@ -31,9 +33,20 @@ public sealed record AnomalyRow(AnomalyKind Kind, string UserId, int Count, stri
 /// </para>
 /// </remarks>
 public sealed class DrawAnomalyDetector(
-    AppDbContext db, IOptions<DrawOptions> options, TimeProvider clock)
+    AppDbContext db,
+    IOptions<DrawOptions> options,
+    IOptions<NetworkOptions> network,
+    TimeProvider clock)
 {
     private readonly DrawOptions _opts = options.Value;
+    private readonly NetworkOptions _network = network.Value;
+
+    /// <summary>
+    /// IP 축을 돌릴 수 있는 배포인가. 프록시 뒤에서 신뢰 설정이 없으면 모든 요청이 프록시 IP
+    /// 하나로 보이고, 그 상태의 IP 축은 전원을 이상 징후로 띄우는 오탐 장치다.
+    /// 화면이 "왜 안 나오는지" 를 말할 수 있도록 공개한다.
+    /// </summary>
+    public bool ClientIpUsable => _network.EffectiveClientIpTrusted;
 
     /// <summary>한 화면에 띄울 최대 건수. 이보다 많으면 개별 유저가 아니라 설정을 의심해야 한다.</summary>
     private const int MaxRows = 50;
@@ -45,7 +58,57 @@ public sealed class DrawAnomalyDetector(
         rows.AddRange(await ScanJackpotRepeatsAsync(drawEventId, ct));
         rows.AddRange(await ScanBurstsAsync(drawEventId, ct));
 
+        if (ClientIpUsable) rows.AddRange(await ScanMultiAccountIpsAsync(drawEventId, ct));
+
         return rows;
+    }
+
+    /// <summary>
+    /// 같은 IP 에서 잭팟을 받은 서로 다른 계정을 찾는다.
+    /// </summary>
+    /// <remarks>
+    /// 전체 추첨이 아니라 <b>잭팟 당첨 건만</b> 본다. 이유가 둘이다 —
+    /// 집합이 재고 수만큼으로 작아 질의가 싸고(필터드 인덱스가 UserId·ClientIp 를 INCLUDE 한다),
+    /// 다계정으로 노리는 것이 애초에 잭팟이기 때문이다. 골드 몇 번 더 받는 다계정은 볼 값이 없다.
+    /// <para>
+    /// 가족·PC방·회사가 IP 를 공유하면 같은 모양이 나온다. 그래서 판정이 아니라 확인 대상이다.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<AnomalyRow>> ScanMultiAccountIpsAsync(
+        long drawEventId, CancellationToken ct)
+    {
+        var jackpotIds = await db.DrawPrizes.AsNoTracking()
+            .Where(p => p.DrawEventId == drawEventId && p.IsJackpot)
+            .Select(p => p.Id)
+            .ToListAsync(ct);
+
+        if (jackpotIds.Count == 0) return [];
+
+        // (IP, 유저) 쌍을 DISTINCT 로 받아 앱에서 센다.
+        // COUNT(DISTINCT) 를 LINQ 로 표현하는 방법은 EF 버전에 따라 번역이 갈리는데,
+        // 번역 실패는 화면을 여는 순간 예외가 된다. 잭팟 당첨 집합은 작으므로 이쪽이 안전하고 싸다.
+        var pairs = await db.DrawLogs.AsNoTracking()
+            .Where(l => l.DrawEventId == drawEventId
+                        && l.Result == DrawResult.Won
+                        && l.PrizeId != null
+                        && jackpotIds.Contains(l.PrizeId.Value)
+                        && l.ClientIp != null)
+            .Select(l => new { l.ClientIp, l.UserId })
+            .Distinct()
+            .ToListAsync(ct);
+
+        var threshold = _opts.MultiAccountIpThreshold;
+
+        return pairs
+            .GroupBy(x => x.ClientIp!)
+            .Where(g => g.Count() >= threshold)
+            .OrderByDescending(g => g.Count())
+            .Take(MaxRows)
+            .Select(g => new AnomalyRow(
+                AnomalyKind.MultiAccountIp, g.Key, g.Count(),
+                $"같은 IP 에서 {g.Count()}개 계정이 잭팟 당첨 (임계 {threshold}개) — "
+                + string.Join(", ", g.Select(x => x.UserId).Order().Take(5))))
+            .ToList();
     }
 
     private async Task<IReadOnlyList<AnomalyRow>> ScanJackpotRepeatsAsync(

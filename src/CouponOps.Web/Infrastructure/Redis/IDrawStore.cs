@@ -14,9 +14,13 @@ public interface IDrawStore
     /// <param name="dayKey">
     /// 일일 카운터의 날짜 구분자. 리셋 시각·타임존 계산은 앱이 하고 결과만 키 이름으로 넘긴다.
     /// </param>
+    /// <param name="clientIp">
+    /// 이상 탐지(다계정 판별)용. 판정에는 쓰이지 않고 이력에만 실린다.
+    /// 신뢰할 프록시가 설정되지 않은 배포에서는 의미가 없으므로 탐지 쪽에서 걸러 쓴다.
+    /// </param>
     Task<DrawOutcome> SpinAsync(
         long drawEventId, string userId, Guid requestId, DateTime nowUtc,
-        long randomValue, string dayKey, bool logFailure, CancellationToken ct);
+        long randomValue, string dayKey, bool logFailure, string? clientIp, CancellationToken ct);
 
     /// <summary>이벤트 메타·누적 가중치·재고를 Redis 에 적재한다(오픈 전 워밍업).</summary>
     Task WarmAsync(DrawEvent ev, IReadOnlyList<DrawPrizeSlot> slots, CancellationToken ct);

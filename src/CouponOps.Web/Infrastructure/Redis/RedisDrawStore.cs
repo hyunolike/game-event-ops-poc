@@ -21,7 +21,7 @@ public sealed class RedisDrawStore(
 
     public async Task<DrawOutcome> SpinAsync(
         long drawEventId, string userId, Guid requestId, DateTime nowUtc,
-        long randomValue, string dayKey, bool logFailure, CancellationToken ct)
+        long randomValue, string dayKey, bool logFailure, string? clientIp, CancellationToken ct)
     {
         RedisKey[] keys =
         [
@@ -39,7 +39,7 @@ public sealed class RedisDrawStore(
         [
             userId, requestId.ToString("N"), ToMs(nowUtc), randomValue,
             (int)_opts.IdempotencyTtl.TotalSeconds, logFailure ? "1" : "0",
-            (int)_opts.DailyCounterTtl.TotalSeconds,
+            (int)_opts.DailyCounterTtl.TotalSeconds, clientIp ?? "",
         ];
 
         var raw = (RedisValue[])(await script.EvaluateAsync(Db, keys, values))!;
@@ -221,6 +221,7 @@ public sealed class RedisDrawStore(
             RandomValue: L("randomValue"),
             Roll: f.TryGetValue("roll", out var r) && !r.IsNullOrEmpty ? (int)r : -1,
             TotalWeight: I("totalWeight"),
+            ClientIp: f.TryGetValue("clientIp", out var ip) && !ip.IsNullOrEmpty ? (string?)ip : null,
             RequestedAtUtc: FromMs(L("requestedAtMs")));
     }
 

@@ -15,7 +15,7 @@
   KEYS[9] {drw:<id>}:won            HASH   prizeId -> 당첨 누적 수 (편차 모니터링)
 
   ARGV[1] userId       ARGV[2] requestId   ARGV[3] nowMs      ARGV[4] randomValue
-  ARGV[5] reqTtlSec    ARGV[6] logFailure  ARGV[7] dailyTtlSec
+  ARGV[5] reqTtlSec    ARGV[6] logFailure  ARGV[7] dailyTtlSec  ARGV[8] clientIp
 
   반환: { result, prizeId, itemId, qty, roll, fallbackApplied, pityApplied, pityCountAfter,
           remainingTickets, remainingDraws, priorResult, weightVersionId, originalPrizeId, totalWeight }
@@ -51,6 +51,8 @@ local randomVal  = tonumber(ARGV[4])
 local reqTtl     = tonumber(ARGV[5])
 local logFailure = ARGV[6] == '1'
 local dailyTtl   = tonumber(ARGV[7])
+-- 이상 탐지(다계정 판별)용. 판정에는 쓰지 않는다 — 그저 이력에 실어 보낼 뿐이다.
+local clientIp   = ARGV[8] or ''
 
 local R_WON, R_OUTOFPERIOD, R_DAILY = 1, 3, 4
 local R_DUPLICATE, R_SUSPENDED, R_TICKET, R_SOLDOUT, R_SYSTEM = 5, 6, 7, 8, 99
@@ -71,7 +73,7 @@ local function fail(result)
       'prizeId', 0, 'originalPrizeId', 0, 'itemId', 0, 'qty', 0,
       'ticketsSpent', 0, 'fallback', 0, 'pity', 0, 'pityAfter', -1,
       'weightVersionId', 0, 'randomValue', 0, 'roll', -1, 'totalWeight', 0,
-      'requestedAtMs', ARGV[3])
+      'clientIp', clientIp, 'requestedAtMs', ARGV[3])
   end
   return { result, 0, 0, 0, -1, 0, 0, -1, -1, -1, -1, 0, 0, 0 }
 end
@@ -268,7 +270,7 @@ redis.call('XADD', KEYS[8], '*',
   'pity', pityApplied, 'pityAfter', pityAfter,
   'weightVersionId', weightVerId, 'randomValue', ARGV[4],
   'roll', roll, 'totalWeight', totalWeight,
-  'requestedAtMs', ARGV[3])
+  'clientIp', clientIp, 'requestedAtMs', ARGV[3])
 
 return { R_WON, prizeId, itemId, qty, roll, fallbackApplied, pityApplied, pityAfter,
          remainingTickets, remainingDraws, -1, weightVerId, originalPrizeId, totalWeight }

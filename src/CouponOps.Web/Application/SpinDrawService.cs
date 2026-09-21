@@ -34,8 +34,12 @@ public sealed class SpinDrawService(
 {
     private readonly DrawOptions _opts = options.Value;
 
+    /// <param name="clientIp">
+    /// 이상 탐지용으로 이력에 남긴다. 추첨 판정에는 전혀 쓰이지 않는다 —
+    /// 판정이 IP 에 의존하면 위조 한 번으로 결과가 달라진다.
+    /// </param>
     public async Task<SpinResult> SpinAsync(
-        long drawEventId, string userId, Guid? requestId, CancellationToken ct)
+        long drawEventId, string userId, Guid? requestId, string? clientIp, CancellationToken ct)
     {
         // RequestId 를 클라이언트가 주지 않으면 서버가 만든다. 이 경우 재시도 멱등성은
         // 보장되지 않는다(매번 새 키). 확률 이벤트에서 이것은 특히 중요하다 —
@@ -53,7 +57,7 @@ public sealed class SpinDrawService(
         var started = Stopwatch.GetTimestamp();
         var outcome = await store.SpinAsync(
             drawEventId, userId, rid, now,
-            NextRandomValue(), DrawDay.For(now, meta.DailyResetAt), logFailure, ct);
+            NextRandomValue(), DrawDay.For(now, meta.DailyResetAt), logFailure, clientIp, ct);
         var latency = (int)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
         SpinPrize? prize = null;
