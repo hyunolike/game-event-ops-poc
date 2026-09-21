@@ -138,25 +138,31 @@ public sealed class CreateModel(AppDbContext db, DrawAdminService admin, TimePro
         while (Slots.Count < SlotRows) Slots.Add(new SlotInput());
     }
 
+    /// <summary>
+    /// 폼 입력을 경품 목록으로 바꾸고 검증한다.
+    /// </summary>
+    /// <remarks>
+    /// 화면은 <b>폼의 형태만</b> 본다 — 슬롯 번호가 범위 안인가.
+    /// "경품은 2개 이상", "대체 대상은 무제한 재고", "천장 경품 지정 필요" 같은 <b>규칙은
+    /// 도메인이 판단한다</b>(<see cref="DrawEvent.ValidatePrizes"/>).
+    /// 같은 규칙을 화면에도 적어 두면 한쪽만 고치는 순간 둘이 어긋나고,
+    /// 그때 무엇이 맞는지 말해 주는 사람이 없다.
+    /// </remarks>
     private List<DrawPrize> BuildPrizes()
     {
         var used = Slots.Where(s => s.IsUsed).ToList();
-        if (used.Count < 2)
-        {
-            Errors.Add("경품은 2개 이상이어야 합니다.");
-            return [];
-        }
+        var upper = Math.Max(0, used.Count - 1);
 
-        var hasFinite = used.Any(s => s.Stock >= 0);
-        if (hasFinite && (FallbackSlot < 0 || FallbackSlot >= used.Count))
-            Errors.Add("한정 재고 슬롯이 있으면 대체 경품을 지정해야 합니다.");
-        else if (hasFinite && used[FallbackSlot].Stock >= 0)
-            Errors.Add("대체 경품은 재고 무제한 슬롯이어야 합니다.");
+        var fallbackInRange = FallbackSlot >= 0 && FallbackSlot < used.Count;
+        var pityInRange = PitySlot >= 0 && PitySlot < used.Count;
 
-        if (PityThreshold > 0 && (PitySlot < 0 || PitySlot >= used.Count))
-            Errors.Add("천장을 사용하면 천장 지급 경품을 지정해야 합니다.");
+        if (used.Any(s => s.Stock >= 0) && !fallbackInRange)
+            Errors.Add($"대체 경품 슬롯 번호가 범위를 벗어났습니다 (0~{upper}).");
 
-        return used.Select((s, i) => DrawPrize.Create(
+        if (PityThreshold > 0 && !pityInRange)
+            Errors.Add($"천장 지급 경품 슬롯 번호가 범위를 벗어났습니다 (0~{upper}).");
+
+        var prizes = used.Select((s, i) => DrawPrize.Create(
             slotIndex: i,
             name: s.Name!.Trim(),
             itemId: s.IsBlank ? 0 : s.ItemId,
@@ -165,9 +171,13 @@ public sealed class CreateModel(AppDbContext db, DrawAdminService admin, TimePro
             initialStock: s.Stock,
             isJackpot: s.IsJackpot,
             isBlank: s.IsBlank,
-            fallbackSlotIndex: s.Stock >= 0 && FallbackSlot >= 0 && FallbackSlot < used.Count
-                ? FallbackSlot
-                : null)).ToList();
+            fallbackSlotIndex: s.Stock >= 0 && fallbackInRange ? FallbackSlot : null)).ToList();
+
+        Errors.AddRange(DrawEvent.ValidatePrizes(
+            prizes, SoldOutPolicy.Fallback, PityThreshold,
+            PityThreshold > 0 && pityInRange ? PitySlot : null));
+
+        return prizes;
     }
 
     /// <summary>시뮬레이션이 대상으로 삼은 설정의 지문. 한 글자라도 바뀌면 달라진다.</summary>

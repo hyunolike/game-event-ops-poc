@@ -44,34 +44,7 @@ public sealed class OddsModel(AppDbContext db, TimeProvider clock) : PageModel
         if (Event.ActiveWeightVersionId is { } vid)
             Version = await db.DrawWeightVersions.AsNoTracking().SingleOrDefaultAsync(v => v.Id == vid, ct);
 
-        SoldOutNotice = BuildNotice(prizes);
+        SoldOutNotice = DrawOdds.SoldOutNotice(prizes);
         return Page();
-    }
-
-    /// <summary>
-    /// 소진 정책 문구.
-    /// </summary>
-    /// <remarks>
-    /// 대체(Fallback) 정책이므로 "소진되면 확률이 바뀐다" 가 아니라 "무엇으로 대체되는가" 를 밝힌다.
-    /// 표시된 확률은 재고와 무관하게 언제나 실행 확률과 같다 — 그것이 이 정책을 택한 이유다.
-    /// </remarks>
-    private static string BuildNotice(IReadOnlyList<DrawPrize> prizes)
-    {
-        var limited = prizes.Where(p => !p.IsUnlimited).ToList();
-        if (limited.Count == 0) return "";
-
-        var byId = prizes.ToDictionary(p => p.Id);
-        var replacements = limited
-            .Select(p => p.FallbackPrizeId)
-            .Where(id => id is not null)
-            .Select(id => byId.TryGetValue(id!.Value, out var f) ? f.Name : null)
-            .Where(n => n is not null)
-            .Distinct()
-            .ToList();
-
-        return replacements.Count == 0
-            ? "한정 수량 경품은 소진 시 지급되지 않습니다."
-            : $"한정 수량 경품 소진 시 해당 확률은 '{string.Join(", ", replacements)}' 지급으로 대체됩니다. "
-              + "표시된 확률은 소진 여부와 무관하게 변하지 않습니다.";
     }
 }

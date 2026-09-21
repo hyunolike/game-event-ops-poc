@@ -78,6 +78,12 @@ public sealed class DrawAdminToolTests(CouponOpsFixture fx)
         html.Should().Contain("확률 정보");
         html.Should().Contain("0.50%", "표준 구성의 잭팟 확률");
         html.Should().Contain("100.00%", "합계는 반올림 잔차 보정으로 항상 정확히 100.00% 여야 한다");
+
+        // 소진 문구는 "확률이 바뀐다" 가 아니라 "무엇으로 대체되는가" 를 밝혀야 한다.
+        // 어드민 미리보기와 같은 함수(DrawOdds.SoldOutNotice)가 만든 문구다.
+        html.Should().Contain("골드", "한정 경품의 대체 대상을 이름으로 밝힌다");
+        html.Should().Contain("변하지 않습니다",
+            "대체 정책에서는 표시된 확률이 재고와 무관하게 실행 확률과 같다");
     }
 
     [Fact(DisplayName = "읽기전용 계정은 룰렛 목록은 보지만 생성 화면에 못 들어간다")]

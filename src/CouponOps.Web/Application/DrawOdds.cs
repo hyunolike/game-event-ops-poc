@@ -52,4 +52,36 @@ public static class DrawOdds
 
     /// <summary>합계 행. 보정이 제대로 됐다면 항상 100.00 이다.</summary>
     public static decimal Sum(IReadOnlyList<OddsRow> rows) => rows.Sum(r => r.Percent);
+
+    /// <summary>
+    /// 한정 경품 소진 시의 공시 문구.
+    /// </summary>
+    /// <remarks>
+    /// 확률 계산과 같은 이유로 여기 한 곳에만 둔다 — 공개 공시 페이지와 공시 API 가
+    /// 각자 문구를 만들면, 둘이 어긋나는 순간 어느 쪽이 맞는지 아무도 말할 수 없다.
+    /// <para>
+    /// 대체(Fallback) 정책이므로 "소진되면 확률이 바뀐다" 가 아니라 "무엇으로 대체되는가" 를 밝힌다.
+    /// 표시된 확률은 재고와 무관하게 언제나 실행 확률과 같다 — 그것이 이 정책을 택한 이유다.
+    /// </para>
+    /// </remarks>
+    public static string SoldOutNotice(IReadOnlyList<DrawPrize> prizes)
+    {
+        var limited = prizes.Where(p => !p.IsUnlimited).ToList();
+        if (limited.Count == 0) return "";
+
+        // 슬롯은 많아야 열몇 개다. 사전을 만들면 Id 가 아직 없는(저장 전) 경품에서
+        // 중복 키로 터지는데, 그 위험을 감수할 만큼 빠를 이유가 없다.
+        var replacements = limited
+            .Select(p => p.FallbackPrizeId)
+            .Where(id => id is not null)
+            .Select(id => prizes.FirstOrDefault(f => f.Id == id!.Value)?.Name)
+            .Where(n => n is not null)
+            .Distinct()
+            .ToList();
+
+        return replacements.Count == 0
+            ? "한정 수량 경품은 소진 시 지급되지 않습니다."
+            : $"한정 수량 경품 소진 시 해당 확률은 '{string.Join(", ", replacements)}' 지급으로 대체됩니다. "
+              + "표시된 확률은 소진 여부와 무관하게 변하지 않습니다.";
+    }
 }

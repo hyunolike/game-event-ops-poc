@@ -84,6 +84,30 @@ public sealed class DrawOddsTests
             "저장 전에 이 숫자를 보면 오타를 알아챌 수 있다 — 그래서 게이트로 둔다");
     }
 
+    [Fact(DisplayName = "무제한 경품만 있으면 소진 문구가 없다")]
+    public void No_sold_out_notice_when_everything_is_unlimited()
+    {
+        List<DrawPrize> prizes =
+        [
+            DrawPrize.Create(0, "강화 주문서", 3001, 5, weight: 1, initialStock: -1, isJackpot: false, isBlank: false),
+            DrawPrize.Create(1, "골드", 1001, 1000, weight: 1, initialStock: -1, isJackpot: false, isBlank: false),
+        ];
+
+        DrawOdds.SoldOutNotice(prizes).Should().BeEmpty();
+    }
+
+    [Fact(DisplayName = "대체 경품이 없는 한정 경품은 '지급되지 않습니다' 로 밝힌다")]
+    public void Limited_prizes_without_a_fallback_say_so()
+    {
+        List<DrawPrize> prizes =
+        [
+            DrawPrize.Create(0, "한정 상자", 9001, 1, weight: 1, initialStock: 10, isJackpot: true, isBlank: false),
+            DrawPrize.Create(1, "골드", 1001, 1000, weight: 1, initialStock: -1, isJackpot: false, isBlank: false),
+        ];
+
+        DrawOdds.SoldOutNotice(prizes).Should().Contain("지급되지 않습니다");
+    }
+
     [Fact(DisplayName = "잭팟이 있으면 2인 승인 경고가 붙는다")]
     public void Jackpot_requires_second_approval()
     {

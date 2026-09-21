@@ -112,9 +112,6 @@ public static class DrawEndpoints
             : null;
 
         var rows = DrawOdds.Compute(prizes);
-        var byId = prizes.ToDictionary(p => p.Id);
-
-        var notice = BuildSoldOutNotice(rows, byId);
 
         return Results.Ok(new OddsResponse(
             ev.Code, ev.Name,
@@ -122,31 +119,7 @@ public static class DrawEndpoints
             rows.Select(r => new OddsRowBody(
                 r.SlotIndex, r.Name, r.ItemId, r.ItemQty, Percent(r.Percent), r.IsJackpot)).ToList(),
             Percent(DrawOdds.Sum(rows)),
-            notice));
-    }
-
-    /// <summary>
-    /// 소진 정책 문구. 대체(Fallback) 정책에서는 공시 확률이 실행 확률과 항상 같으므로
-    /// "확률이 바뀐다" 가 아니라 "무엇으로 대체되는가" 를 밝히면 된다.
-    /// </summary>
-    private static string BuildSoldOutNotice(
-        IReadOnlyList<OddsRow> rows, IReadOnlyDictionary<long, DrawPrize> byId)
-    {
-        var limited = rows.Where(r => r.Stock >= 0).ToList();
-        if (limited.Count == 0) return "";
-
-        var replacements = limited
-            .Select(r => byId.TryGetValue(r.PrizeId, out var p) ? p.FallbackPrizeId : null)
-            .Where(id => id is not null)
-            .Select(id => byId.TryGetValue(id!.Value, out var f) ? f.Name : null)
-            .Where(n => n is not null)
-            .Distinct()
-            .ToList();
-
-        return replacements.Count == 0
-            ? "한정 수량 경품은 소진 시 지급되지 않습니다."
-            : $"한정 수량 경품 소진 시 해당 확률은 '{string.Join(", ", replacements)}' 지급으로 대체됩니다. "
-              + "표시된 확률은 소진 여부와 무관하게 변하지 않습니다.";
+            DrawOdds.SoldOutNotice(prizes)));
     }
 
     /// <summary>유저의 남은 티켓·오늘 추첨 횟수·천장 진행도. 클라이언트가 룰렛 화면을 열 때 부른다.</summary>
