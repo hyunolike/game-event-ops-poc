@@ -228,21 +228,74 @@ CS 클레임·내부 감사·규제 대응·버그 조사가 전부 이 한 줄�
 → [docs/04-roulette-design.md](docs/04-roulette-design.md) ·
 [draw_spin.lua](src/CouponOps.Web/Infrastructure/Redis/Scripts/draw_spin.lua)
 
+### 4. 지급은 우편함을 거친다
+
+추첨은 우편을 만들고, 지급은 유저가 수령할 때 확정된다. 인벤토리에 직접 꽂지 않는 이유는
+**미수령분을 되돌릴 수 있다**는 것 하나로 충분하다 — 잘못 설정된 경품을 회수할 수 있는
+유일한 창이 그 구간이고, 인벤토리에 들어간 뒤에는 방법이 없다.
+
+수령 동시성은 `RowVersion` 이 잡는다. 규칙은 `TryClaim` 한 곳에만 두고, 같은 조건을
+WHERE 절에 복사해 두 곳에서 관리하지 않는다. 중복 클릭은 오류가 아니라 이미 달성된
+상태이므로 `200 + AlreadyClaimed` 다.
+
+```
+POST /api/draws/{id}/spin            추첨 → 우편 생성
+GET  /api/draws/{id}/mails           미수령 목록
+POST /api/draws/{id}/mails/{m}/claim 수령
+```
+
+### 5. 확률 변경에는 두 사람이 필요하다
+
+이미 시작된 이벤트의 확률 변경은 **등록자와 다른 편집자**가 승인해야 적용된다.
+`CanBeDecidedBy(adminId)` 한 줄이 절차의 전부다 — 자기가 올린 것을 자기가 통과시킬 수 있으면
+절차는 형식이고, 사고가 났을 때 "두 사람이 봤다" 고 말할 수 없다.
+
+반대로 **시작 전 이벤트는 승인 없이 바꾼다.** 아직 아무도 뽑지 않았으므로 되돌릴 것이 없고,
+절차를 불필요한 곳까지 늘리면 운영자는 절차를 우회할 방법을 찾는다.
+
+승인 화면은 바뀌는 슬롯만, **배율과 함께** 보여준다 — `5 → 50` 같은 자릿수 실수는
+절대값보다 배율에서 먼저 보인다.
+
 ### 운영툴에서 막는 것
 
 | 화면 | 막는 사고 |
 |---|---|
 | 슬롯 편집기 + **시뮬레이터 게이트** | 가중치 `5` 를 `50` 으로 친 오타. 시뮬레이션을 보지 않으면 저장이 안 된다 |
 | 대체 경품 단일 선택 | 유한 재고끼리 대체를 걸어 치환이 연쇄·순환하는 설정 |
+| **2인 승인** | 혼자 누른 확률 변경. 진행 중 이벤트에만 걸고, 시작 전에는 걸지 않는다 |
 | 실시간 편차 + 카이제곱 | 가중치 오류 · 워밍업 불일치 · 어뷰징 |
 | 확률 버전 이력 | "그때 확률이 뭐였나" 에 답할 수 없는 상태 |
 | 강제 중단 3중 확인 | 옆 탭의 다른 이벤트를 중단시키는 실수 |
+| **미수령분 회수** | 잘못 설정된 경품. 이미 수령한 우편은 대상이 아니다 |
 | 공시 페이지 자동 생성 | 어드민 확률표와 공시가 어긋나는 것 |
+
+### 이상 탐지 — 판정이 아니라 "봐야 할 것"
+
+잭팟 반복 당첨 · 추첨 폭주 · **같은 IP 의 다계정 잭팟** 셋을 띄운다.
+자동으로 회수하거나 차단하지 않는다 — 0.5% 짜리 잭팟을 세 번 받는 일은 확률적으로
+불가능하지 않고, **오탐 한 건의 비용이 탐지 이득보다 크다.**
+
+IP 축에는 전제가 붙는다. 프록시 뒤에서 `X-Forwarded-For` 를 검증 없이 믿으면 누구나
+자기 IP 를 위조할 수 있고, 그러면 이 축은 탐지 도구가 아니라 **남에게 혐의를 씌우는 도구**가 된다.
+그래서 신뢰할 프록시를 명시한 경우에만 헤더를 해석하고, 설정이 없으면 **아예 돌리지 않는다.**
+설정 없이 돌리면 전원이 프록시 IP 하나로 보여 모두가 이상 징후로 뜨는데, 그 화면을 한 번 본
+운영자는 이후 이상 탐지 전체를 신뢰하지 않게 된다.
 
 ```bash
 curl -X POST http://localhost:8080/api/draws/1/spin \
   -H 'Content-Type: application/json' \
   -d '{"userId":"player-1234","requestId":"3f2b8c10-0000-4000-8000-000000000001"}'
+```
+
+### 측정 — 아직 비어 있다
+
+쿠폰 경로처럼 수치로 증명할 자리를 만들어 뒀지만 **아직 돌리지 않았다.**
+하네스(`loadtest/run-draw.sh`)는 실행이 끝날 때마다 현황 API 에 직접 물어
+**한정 경품 당첨 수가 재고를 넘었는지** 확인하고, 넘었으면 0이 아닌 종료 코드로 끝난다 —
+측정이 곧 검증이다. 추정치를 적으면 비교표 전체의 신뢰가 무너지므로 비워 둔다.
+
+```bash
+STOCK=5000 bash loadtest/run-draw.sh /tmp/draw-results
 ```
 
 ---
@@ -256,7 +309,8 @@ docker compose up -d --wait
 | | |
 |---|---|
 | 운영툴 · API | http://localhost:8080 |
-| 계정 | `admin` / `admin1234` (편집), `viewer` / `admin1234` (읽기전용) |
+| 계정 | `admin`, `admin2` (편집) · `viewer` (읽기전용) — 비밀번호 모두 `admin1234` |
+| 확률 공시 | http://localhost:8080/Odds?code=&lt;이벤트코드&gt; (로그인 불필요) |
 | 헬스체크 | http://localhost:8080/health/ready |
 
 ```bash
@@ -265,9 +319,12 @@ curl -X POST http://localhost:8080/api/events/1/coupons/issue \
   -d '{"userId":"player-1234"}'
 ```
 
+편집 계정이 둘인 것은 의도적이다 — 확률 변경의 2인 승인은 등록자와 다른 편집자가 있어야 성립한다.
+
 ```bash
-dotnet test                                    # 통합 테스트 46건 (실제 MSSQL·Redis)
-bash loadtest/run-comparison.sh /tmp/results   # 3경로 × 3 VU 레벨
+dotnet test                                    # 통합 테스트 (실제 MSSQL·Redis)
+bash loadtest/run-comparison.sh /tmp/results   # 쿠폰 3경로 × 3 VU 레벨
+bash loadtest/run-draw.sh /tmp/draw-results    # 룰렛 3 VU 레벨 + 초과 지급 0건 확인
 bash deploy/deploy.sh couponops:local          # 무중단 배포 (blue-green)
 ```
 
@@ -412,7 +469,7 @@ src/CouponOps.Web/          단일 프로젝트 (Minimal API + Razor Pages)
 └─ Pages/                   운영툴
 
 tests/CouponOps.Tests/      통합 테스트 (Testcontainers, 실제 MSSQL·Redis)
-loadtest/                   k6 시나리오 + 측정 스크립트
+loadtest/                   k6 시나리오 + 측정 스크립트 (쿠폰 · 룰렛)
 deploy/                     blue-green 배포 스크립트 · nginx
 docs/                       설계·측정·CI/CD·AI 활용 기록
 ```

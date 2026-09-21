@@ -245,21 +245,79 @@ So slot selection, stock checking and fallback substitution all complete in the 
 → [docs/04-roulette-design.md](docs/04-roulette-design.md) ·
 [draw_spin.lua](src/CouponOps.Web/Infrastructure/Redis/Scripts/draw_spin.lua)
 
+### 4. Rewards go through a mailbox
+
+A draw creates mail; the grant is settled when the player claims it. One reason is enough for
+not writing straight into the inventory: **unclaimed mail can be taken back.** That window is
+the only chance to undo a misconfigured prize — once it is in the inventory, there is none.
+
+Claim concurrency is caught by `RowVersion`. The rule lives in `TryClaim` alone, not copied
+into a WHERE clause to be maintained in two places. A double click is not an error but an
+already-reached state, so it answers `200 + AlreadyClaimed`.
+
+```
+POST /api/draws/{id}/spin            draw → mail created
+GET  /api/draws/{id}/mails           unclaimed list
+POST /api/draws/{id}/mails/{m}/claim claim
+```
+
+### 5. Changing odds takes two people
+
+On an event that has already started, a weight change applies only after **an editor other
+than the requester** approves it. `CanBeDecidedBy(adminId)` is the whole procedure — if you
+can wave through what you filed yourself, the procedure is a formality and nobody can say
+"two people looked at it" when something goes wrong.
+
+Before the event starts, odds change without approval. Nobody has drawn yet, so there is
+nothing to undo; stretching a procedure to where it isn't needed only teaches operators to
+route around it.
+
+The approval screen shows only the slots that change, **with the ratio** — a misplaced digit
+(`5 → 50`) is visible in the ratio long before it is in the absolute value.
+
 ### What the back-office prevents
 
 | Screen | Incident it prevents |
 |---|---|
 | Slot editor + **simulator gate** | A weight typed as `50` instead of `5` — you cannot save without viewing the simulation |
 | Single fallback selector | Finite-stock slots chaining or cycling substitutions |
+| **Two-person approval** | A weight change waved through alone — required on running events, not before they start |
 | Live deviation + chi-square | Misconfigured weights · stale warm-up · abuse |
 | Weight version history | Being unable to answer "what were the odds back then?" |
 | Three-way force-stop confirm | Stopping the wrong event from the next browser tab |
+| **Revoking unclaimed mail** | A misconfigured prize. Already-claimed mail is out of reach |
 | Auto-generated disclosure page | Admin odds and the public page drifting apart |
+
+### Anomaly detection — a prompt to look, not a verdict
+
+Three signals are surfaced: repeated jackpot wins, draw bursts, and **multiple accounts
+winning a jackpot from one IP**. Nothing is revoked or blocked automatically — winning a
+0.5% jackpot three times is improbable, not impossible, and **one false positive costs more
+than the detection gains.**
+
+The IP axis carries a precondition. Trusting `X-Forwarded-For` behind a proxy without
+verification lets anyone forge their own address, turning the axis from a detector into a way
+to **frame someone else**. So the header is only parsed when trusted proxies are named
+explicitly, and with no such configuration the axis **does not run at all**. Running it anyway
+would show every request coming from the proxy's single address and flag everyone — and an
+operator who sees that screen once stops trusting anomaly detection entirely.
 
 ```bash
 curl -X POST http://localhost:8080/api/draws/1/spin \
   -H 'Content-Type: application/json' \
   -d '{"userId":"player-1234","requestId":"3f2b8c10-0000-4000-8000-000000000001"}'
+```
+
+### Measurement — still empty
+
+The place to prove this with numbers, as the coupon path does, exists — but **it has not been
+run yet.** The harness (`loadtest/run-draw.sh`) asks the status API directly after every run
+whether **the limited prize was granted beyond its stock**, and exits non-zero if it was:
+measuring is the verification. Filling the table with estimates would sink the credibility of
+every other number on this page, so it stays empty.
+
+```bash
+STOCK=5000 bash loadtest/run-draw.sh /tmp/draw-results
 ```
 
 ---
@@ -273,7 +331,8 @@ docker compose up -d --wait
 | | |
 |---|---|
 | Back-office · API | http://localhost:8080 |
-| Accounts | `admin` / `admin1234` (editor), `viewer` / `admin1234` (read-only) |
+| Accounts | `admin`, `admin2` (editor) · `viewer` (read-only) — password `admin1234` for all |
+| Odds disclosure | http://localhost:8080/Odds?code=&lt;event-code&gt; (no login) |
 | Health | http://localhost:8080/health/ready |
 
 Issue a coupon:
@@ -286,9 +345,13 @@ curl -X POST http://localhost:8080/api/events/1/coupons/issue \
 
 Tests, load test, deployment:
 
+Two editor accounts is deliberate — two-person approval of an odds change needs an editor
+other than the requester.
+
 ```bash
-dotnet test                                    # 46 integration tests on real MSSQL + Redis
-bash loadtest/run-comparison.sh /tmp/results   # 3 paths × 3 VU levels
+dotnet test                                    # integration tests on real MSSQL + Redis
+bash loadtest/run-comparison.sh /tmp/results   # coupons: 3 paths × 3 VU levels
+bash loadtest/run-draw.sh /tmp/draw-results    # roulette: 3 VU levels + over-grant check
 bash deploy/deploy.sh couponops:local          # zero-downtime blue-green deploy
 ```
 
@@ -436,7 +499,7 @@ src/CouponOps.Web/          single project (Minimal API + Razor Pages)
 └─ Pages/                   back-office
 
 tests/CouponOps.Tests/      46 integration tests (Testcontainers, real MSSQL + Redis)
-loadtest/                   k6 scenarios and measurement scripts
+loadtest/                   k6 scenarios and measurement scripts (coupons · roulette)
 deploy/                     blue-green deploy script · nginx
 docs/                       design · measurement · CI/CD · AI usage log
 ```
