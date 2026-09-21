@@ -58,6 +58,14 @@ services:
       ConnectionStrings__Redis: "redis:6379"
       Admin__SeedPassword: ${ADMIN_PASSWORD:-admin1234}
       Issuance__CodeSecret: ${CODE_SECRET:-local-dev-secret-change-me}
+      # 프록시(nginx)가 보내는 X-Forwarded-For 를 믿을 대역. 이것이 있어야 추첨 이력에
+      # 실제 클라이언트 IP 가 남고, 이상 탐지의 다계정 축이 켜진다.
+      # 도커 기본 브리지 대역이다 — 운영에서는 실제 프록시 대역만 좁게 적는다.
+      #
+      # 주의: 아래 app 의 8081 포트가 호스트에 노출돼 있다(배포 스크립트의 색깔별 헬스체크용).
+      # 그 포트에 닿을 수 있는 쪽은 헤더를 위조할 수 있으므로, 운영에서는 앱 포트를
+      # 프록시만 접근 가능한 망에 둔다.
+      Network__TrustedProxyNetworks__0: "172.16.0.0/12"
       Logging__LogLevel__Default: Information
     depends_on:
       migrate: { condition: service_completed_successfully }

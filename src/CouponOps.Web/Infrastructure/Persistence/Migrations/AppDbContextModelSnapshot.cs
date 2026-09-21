@@ -312,12 +312,466 @@ namespace CouponOps.Web.Infrastructure.Persistence.Migrations
                     b.ToTable("OperationLogs", (string)null);
                 });
 
+            modelBuilder.Entity("CouponOps.Domain.DrawApproval", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("BaseWeightVersionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<long?>("DecidedByAdminId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("DecidedByLoginId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("DecisionNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long>("DrawEventId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequestReason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<long>("RequestedByAdminId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RequestedByLoginId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("tinyint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedAt");
+
+                    b.HasIndex("DrawEventId", "Status")
+                        .HasFilter("[Status] = 0");
+
+                    b.ToTable("DrawApprovals", (string)null);
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("ActiveWeightVersionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<int>("DailyDrawLimit")
+                        .HasColumnType("int");
+
+                    b.Property<TimeSpan>("DailyResetAt")
+                        .HasColumnType("time");
+
+                    b.Property<DateTime>("EndsAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<long?>("PityPrizeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("PityThreshold")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("PoolWarmedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<byte>("SoldOutPolicy")
+                        .HasColumnType("tinyint");
+
+                    b.Property<DateTime>("StartsAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("SuspendReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("SuspendedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<int>("TicketCost")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("TicketItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("SuspendedAt", "StartsAt");
+
+                    b.ToTable("DrawEvents", (string)null);
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ClientIp")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
+                    b.Property<long>("DrawEventId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("FailureDetail")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("FallbackApplied")
+                        .HasColumnType("bit");
+
+                    b.Property<long?>("ItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("ItemQty")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("OriginalPrizeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("PersistedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<int>("PersistenceLagMs")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("PityApplied")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("PityCountAfter")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("PrizeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PrizeName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<long>("RandomValue")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<byte>("Result")
+                        .HasColumnType("tinyint");
+
+                    b.Property<int>("Roll")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TicketsSpent")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TotalWeight")
+                        .HasColumnType("int");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<long?>("WeightVersionId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
+                    b.HasIndex("DrawEventId", "RequestedAt");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("DrawEventId", "RequestedAt"), new[] { "UserId", "Result", "PrizeName", "PrizeId" });
+
+                    b.HasIndex("UserId", "RequestedAt");
+
+                    b.HasIndex("DrawEventId", "PrizeId", "RequestedAt")
+                        .HasFilter("[Result] = 1");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("DrawEventId", "PrizeId", "RequestedAt"), new[] { "UserId", "ClientIp" });
+
+                    b.ToTable("DrawLogs", (string)null);
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawPrize", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("DrawEventId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("FallbackPrizeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("InitialStock")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsBlank")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsJackpot")
+                        .HasColumnType("bit");
+
+                    b.Property<long>("ItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("ItemQty")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("SlotIndex")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Weight")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DrawEventId", "SlotIndex")
+                        .IsUnique();
+
+                    b.ToTable("DrawPrizes", (string)null);
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawRewardMail", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<long>("DrawEventId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ItemId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("ItemQty")
+                        .HasColumnType("int");
+
+                    b.Property<long>("PrizeId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PrizeName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RevokeReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DrawEventId");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "DrawEventId")
+                        .HasFilter("[ClaimedAt] IS NULL AND [RevokedAt] IS NULL");
+
+                    b.ToTable("DrawRewardMails", (string)null);
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawWeightVersion", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("ActivatedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("ChangeReason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long>("CreatedByAdminId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("DeactivatedAt")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<long>("DrawEventId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("TotalWeight")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DrawEventId", "Version")
+                        .IsUnique();
+
+                    b.HasIndex("DrawEventId", "DeactivatedAt")
+                        .HasFilter("[DeactivatedAt] IS NULL");
+
+                    b.ToTable("DrawWeightVersions", (string)null);
+                });
+
             modelBuilder.Entity("CouponOps.Domain.Coupon", b =>
                 {
                     b.HasOne("CouponOps.Domain.CouponEvent", null)
                         .WithMany()
                         .HasForeignKey("EventId")
                         .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawApproval", b =>
+                {
+                    b.HasOne("CouponOps.Domain.DrawEvent", null)
+                        .WithMany()
+                        .HasForeignKey("DrawEventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawLog", b =>
+                {
+                    b.HasOne("CouponOps.Domain.DrawEvent", null)
+                        .WithMany()
+                        .HasForeignKey("DrawEventId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawPrize", b =>
+                {
+                    b.HasOne("CouponOps.Domain.DrawEvent", null)
+                        .WithMany()
+                        .HasForeignKey("DrawEventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawRewardMail", b =>
+                {
+                    b.HasOne("CouponOps.Domain.DrawEvent", null)
+                        .WithMany()
+                        .HasForeignKey("DrawEventId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CouponOps.Domain.DrawWeightVersion", b =>
+                {
+                    b.HasOne("CouponOps.Domain.DrawEvent", null)
+                        .WithMany()
+                        .HasForeignKey("DrawEventId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

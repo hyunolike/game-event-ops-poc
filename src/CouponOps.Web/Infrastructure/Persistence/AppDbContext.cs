@@ -15,6 +15,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
     public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
 
+    public DbSet<DrawEvent> DrawEvents => Set<DrawEvent>();
+    public DbSet<DrawPrize> DrawPrizes => Set<DrawPrize>();
+    public DbSet<DrawWeightVersion> DrawWeightVersions => Set<DrawWeightVersion>();
+    public DbSet<DrawLog> DrawLogs => Set<DrawLog>();
+    public DbSet<DrawRewardMail> DrawRewardMails => Set<DrawRewardMail>();
+    public DbSet<DrawApproval> DrawApprovals => Set<DrawApproval>();
+
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<CouponEvent>(e =>
@@ -116,6 +123,137 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(x => x.OccurredAt);
             e.HasIndex(x => new { x.ActorId, x.OccurredAt });
             e.HasIndex(x => new { x.TargetType, x.TargetId, x.OccurredAt });
+        });
+
+        // ── 룰렛(확률 지급) 이벤트 ───────────────────────────────────────────────
+        // 설계 근거는 docs/04-roulette-design.md.
+
+        b.Entity<DrawEvent>(e =>
+        {
+            e.ToTable("DrawEvents");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Code).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.SuspendReason).HasMaxLength(500);
+            e.Property(x => x.StartsAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.EndsAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.SuspendedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.PoolWarmedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.CreatedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.UpdatedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasIndex(x => x.Code).IsUnique();
+            // 목록의 상태 필터. 쿠폰 이벤트와 같은 이유로 (SuspendedAt, StartsAt) 을 탄다.
+            e.HasIndex(x => new { x.SuspendedAt, x.StartsAt });
+        });
+
+        b.Entity<DrawPrize>(e =>
+        {
+            e.ToTable("DrawPrizes");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+
+            // 생성 시점의 입력값일 뿐 저장 대상이 아니다. 저장된 뒤에는 FallbackPrizeId 가 진실이다.
+            e.Ignore(x => x.FallbackSlotIndex);
+
+            e.HasOne<DrawEvent>().WithMany()
+             .HasForeignKey(x => x.DrawEventId).OnDelete(DeleteBehavior.Cascade);
+
+            // 한 이벤트의 슬롯 위치는 유일하다 — 돌림판에서 두 경품이 같은 칸을 차지할 수 없다.
+            e.HasIndex(x => new { x.DrawEventId, x.SlotIndex }).IsUnique();
+        });
+
+        b.Entity<DrawWeightVersion>(e =>
+        {
+            e.ToTable("DrawWeightVersions");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SnapshotJson).IsRequired();
+            e.Property(x => x.SnapshotHash).HasMaxLength(64).IsRequired();
+            e.Property(x => x.ChangeReason).HasMaxLength(500).IsRequired();
+            e.Property(x => x.ActivatedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.DeactivatedAt).HasColumnType("datetime2(3)");
+
+            e.HasOne<DrawEvent>().WithMany()
+             .HasForeignKey(x => x.DrawEventId).OnDelete(DeleteBehavior.Cascade);
+
+            // append-only 이력. 같은 이벤트에 같은 버전 번호가 두 번 생기면 이력이 모호해진다.
+            e.HasIndex(x => new { x.DrawEventId, x.Version }).IsUnique();
+            // 활성 버전 조회. 이벤트당 활성은 하나뿐이라 매우 선택적이다.
+            e.HasIndex(x => new { x.DrawEventId, x.DeactivatedAt })
+             .HasFilter("[DeactivatedAt] IS NULL");
+        });
+
+        b.Entity<DrawLog>(e =>
+        {
+            e.ToTable("DrawLogs");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.PrizeName).HasMaxLength(200);
+            e.Property(x => x.ClientIp).HasMaxLength(45);   // IPv6 최대 길이
+            e.Property(x => x.FailureDetail).HasMaxLength(500);
+            e.Property(x => x.RequestedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.PersistedAt).HasColumnType("datetime2(3)");
+
+            e.HasOne<DrawEvent>().WithMany()
+             .HasForeignKey(x => x.DrawEventId).OnDelete(DeleteBehavior.NoAction);
+
+            // 비동기 적재는 at-least-once 다. 재처리의 중복 행을 이 제약이 막는다.
+            e.HasIndex(x => x.RequestId).IsUnique();
+            // 이력 조회(이벤트 + 기간 + 페이징)의 주 경로.
+            e.HasIndex(x => new { x.DrawEventId, x.RequestedAt })
+             .IncludeProperties(x => new { x.UserId, x.Result, x.PrizeName, x.PrizeId });
+            // "이 유저가 언제 뭘 받았나" — CS 문의 대응
+            e.HasIndex(x => new { x.UserId, x.RequestedAt });
+            // 경품별 당첨 조회 + 이상 탐지(같은 유저의 잭팟 연속 당첨). 성공 행만 담는다.
+            e.HasIndex(x => new { x.DrawEventId, x.PrizeId, x.RequestedAt })
+             .HasFilter("[Result] = 1")
+             .IncludeProperties(x => new { x.UserId, x.ClientIp });
+        });
+
+        b.Entity<DrawRewardMail>(e =>
+        {
+            e.ToTable("DrawRewardMails");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.PrizeName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.RevokeReason).HasMaxLength(500);
+            e.Property(x => x.CreatedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.ClaimedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.RevokedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne<DrawEvent>().WithMany()
+             .HasForeignKey(x => x.DrawEventId).OnDelete(DeleteBehavior.NoAction);
+
+            // 발송 멱등. 재처리로 우편이 두 통 가지 않는다.
+            e.HasIndex(x => x.RequestId).IsUnique();
+            // 유저의 미수령 우편 목록 — 게임 클라이언트가 가장 자주 하는 질의다.
+            e.HasIndex(x => new { x.UserId, x.DrawEventId })
+             .HasFilter("[ClaimedAt] IS NULL AND [RevokedAt] IS NULL");
+        });
+
+        b.Entity<DrawApproval>(e =>
+        {
+            e.ToTable("DrawApprovals");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.PayloadJson).IsRequired();
+            e.Property(x => x.RequestedByLoginId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.RequestReason).HasMaxLength(500).IsRequired();
+            e.Property(x => x.DecidedByLoginId).HasMaxLength(64);
+            e.Property(x => x.DecisionNote).HasMaxLength(500);
+            e.Property(x => x.RequestedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.DecidedAt).HasColumnType("datetime2(3)");
+            e.Property(x => x.RowVersion).IsRowVersion();
+
+            e.HasOne<DrawEvent>().WithMany()
+             .HasForeignKey(x => x.DrawEventId).OnDelete(DeleteBehavior.Cascade);
+
+            // 대기 중인 요청 조회가 이 화면의 전부다. 결정된 건은 소수가 아니라 다수가 되므로
+            // 필터드 인덱스로 대기분만 담는다 — 시간이 지나도 커지지 않는다.
+            e.HasIndex(x => new { x.DrawEventId, x.Status })
+             .HasFilter("[Status] = 0");
+            e.HasIndex(x => x.RequestedAt);
         });
 
         b.Entity<AdminUser>(e =>

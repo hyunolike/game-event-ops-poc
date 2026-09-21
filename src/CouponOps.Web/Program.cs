@@ -6,7 +6,9 @@ using CouponOps.Infrastructure.Redis;
 using CouponOps.Infrastructure.Workers;
 using System.Text.Encodings.Web;
 using System.Text.Unicode;
+using System.Net;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.WebEncoders;
@@ -21,6 +23,48 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<IssuanceOptions>(
     builder.Configuration.GetSection(IssuanceOptions.SectionName));
+
+builder.Services.Configure<DrawOptions>(
+    builder.Configuration.GetSection(DrawOptions.SectionName));
+
+builder.Services.Configure<NetworkOptions>(
+    builder.Configuration.GetSection(NetworkOptions.SectionName));
+
+// ── 클라이언트 IP ──────────────────────────────────────────────────────────
+// 프록시 뒤에서 X-Forwarded-For 를 검증 없이 믿으면 누구나 자기 IP 를 위조할 수 있고,
+// 그러면 이상 탐지의 IP 축은 남에게 혐의를 씌우는 도구가 된다.
+// 신뢰할 프록시를 명시적으로 적은 경우에만 헤더를 해석한다.
+//
+// 이 compose 구성에서 앱 포트(8081)가 직접 노출돼 있다는 점에 주의한다 — 배포 스크립트가
+// 색깔별로 헬스체크하기 위한 것이지만, 그 포트에 닿을 수 있는 쪽은 헤더를 위조할 수 있다.
+// 운영에서는 앱 포트를 프록시만 접근 가능한 망에 둔다.
+var network = builder.Configuration.GetSection(NetworkOptions.SectionName).Get<NetworkOptions>()
+              ?? new NetworkOptions();
+
+if (network.IsBehindTrustedProxy)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(o =>
+    {
+        o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+        // 기본값은 루프백만 신뢰한다. 컨테이너 프록시는 루프백이 아니므로 비우고 명시한 것만 넣는다.
+        o.KnownProxies.Clear();
+        o.KnownNetworks.Clear();
+
+        foreach (var ip in network.TrustedProxies)
+            if (IPAddress.TryParse(ip, out var parsed)) o.KnownProxies.Add(parsed);
+
+        foreach (var cidr in network.TrustedProxyNetworks)
+        {
+            var parts = cidr.Split('/');
+            if (parts.Length == 2
+                && IPAddress.TryParse(parts[0], out var prefix)
+                && int.TryParse(parts[1], out var length))
+                // .NET 8 에는 System.Net.IPNetwork 도 있어 단순 이름은 모호하다. 명시적으로 쓴다.
+                o.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(prefix, length));
+        }
+    });
+}
 
 builder.Services.AddSingleton(TimeProvider.System);
 
@@ -51,6 +95,11 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
 
 builder.Services.AddSingleton<IssuanceScript>();
 builder.Services.AddSingleton<IIssuanceStore, RedisIssuanceStore>();
+builder.Services.AddSingleton<DrawScript>();
+builder.Services.AddSingleton<IDrawStore, RedisDrawStore>();
+// 추첨 hot path 가 경품명·리셋 시각 때문에 매번 DB 를 읽지 않도록 하는 캐시.
+// 판정에 쓰이는 값은 전부 Redis 에 있으므로, 이 캐시가 잠시 낡아도 정확성에는 영향이 없다.
+builder.Services.AddSingleton<DrawMetaCache>();
 builder.Services.AddSingleton<IPasswordHasher<AdminUser>, PasswordHasher<AdminUser>>();
 
 builder.Services.AddScoped<ICurrentActor, HttpCurrentActor>();
@@ -58,8 +107,14 @@ builder.Services.AddScoped<IAuditLogger, AuditLogger>();
 builder.Services.AddScoped<IssueCouponService>();
 builder.Services.AddScoped<DbIssueCouponService>();   // 4단계 비교 측정용 대조군
 builder.Services.AddScoped<EventAdminService>();
+builder.Services.AddScoped<SpinDrawService>();
+builder.Services.AddScoped<DrawAdminService>();
+builder.Services.AddScoped<DrawMailService>();
+builder.Services.AddScoped<DrawApprovalService>();
+builder.Services.AddScoped<DrawAnomalyDetector>();
 
 builder.Services.AddHostedService<IssuancePersistenceWorker>();
+builder.Services.AddHostedService<DrawPersistenceWorker>();
 builder.Services.AddHostedService<AdminSeedWorker>();
 
 // ── 인증: 운영툴 전용 쿠키 ────────────────────────────────────────────────────
@@ -86,9 +141,14 @@ builder.Services.AddRazorPages(o =>
     o.Conventions.AuthorizeFolder("/");
     o.Conventions.AllowAnonymousToPage("/Account/Login");
     o.Conventions.AllowAnonymousToPage("/Account/Denied");
+    // 확률 공시는 유저에게 보이는 페이지다. 로그인 뒤에 두면 공시의 의미가 없다.
+    o.Conventions.AllowAnonymousToPage("/Odds");
 });
 
 var app = builder.Build();
+
+// 인증·라우팅보다 먼저 와야 한다. 이후 단계가 보는 RemoteIpAddress 가 실제 클라이언트여야 하기 때문이다.
+if (network.IsBehindTrustedProxy) app.UseForwardedHeaders();
 
 app.UseStaticFiles();
 app.UseRouting();
@@ -101,6 +161,9 @@ app.MapRazorPages();
 app.MapIssueEndpoints();
 app.MapIssueDbEndpoints();
 app.MapEventStatusEndpoints();
+app.MapDrawEndpoints();
+app.MapDrawStatusEndpoints();
+app.MapDrawMailEndpoints();
 app.MapHealthEndpoints();
 
 app.Run();

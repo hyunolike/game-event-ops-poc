@@ -64,6 +64,11 @@ if [ "$SIMULATE_FAILURE" = "--simulate-failure" ]; then
   REDIS_HOST="unreachable-redis:6379"
 fi
 
+# compose 가 띄우는 인스턴스와 같은 값이어야 한다. 여기서 빠지면 배포 한 번에
+# 신뢰 프록시 설정이 사라지고, 추첨 이력의 클라이언트 IP 가 프록시 IP 로 바뀐다 —
+# 이상 탐지의 다계정 축이 조용히 꺼지는 모양이라 알아채기 어렵다.
+TRUSTED_PROXY_NETWORK=${TRUSTED_PROXY_NETWORK:-172.16.0.0/12}
+
 docker rm -f "$NEXT_CONTAINER" >/dev/null 2>&1 || true
 docker run -d --name "$NEXT_CONTAINER" --network "$NETWORK" \
   --label "couponops.color=$NEXT" \
@@ -71,6 +76,7 @@ docker run -d --name "$NEXT_CONTAINER" --network "$NETWORK" \
   -e "ConnectionStrings__SqlServer=Server=mssql,1433;Database=CouponOps;User Id=sa;Password=$SA_PASSWORD;TrustServerCertificate=True;Max Pool Size=200" \
   -e "ConnectionStrings__Redis=$REDIS_HOST,abortConnect=false,connectTimeout=1000" \
   -e "Admin__SeedPassword=$ADMIN_PASSWORD" \
+  -e "Network__TrustedProxyNetworks__0=$TRUSTED_PROXY_NETWORK" \
   "$IMAGE" >/dev/null
 
 log "새 인스턴스 기동됨 ($NEXT_CONTAINER, 포트 $NEXT_PORT)"

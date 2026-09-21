@@ -1,0 +1,68 @@
+@page
+@model CouponOps.Pages.OddsModel
+@{
+    Layout = null;
+    ViewData["Title"] = "확률 정보";
+    var ev = Model.Event!;
+}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ev.Name · 확률 정보</title>
+    <link rel="stylesheet" href="~/site.css" asp-append-version="true" />
+</head>
+<body>
+<main>
+    <h1>@ev.Name</h1>
+    <p class="sub">
+        확률 정보 · 이벤트 기간 @KoreaTime.Format(ev.StartsAt) ~ @KoreaTime.Format(ev.EndsAt) (KST)
+    </p>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th>경품</th>
+                <th class="num">수량</th>
+                <th class="num">확률</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var row in Model.Rows)
+            {
+                <tr>
+                    <td>@row.Name</td>
+                    <td class="num mono">@(row.IsBlank ? "-" : row.ItemQty.ToString("N0"))</td>
+                    <td class="num mono"><strong>@row.Percent.ToString("F2")%</strong></td>
+                </tr>
+            }
+            </tbody>
+            <tfoot>
+            <tr>
+                <th>합계</th>
+                <th></th>
+                @* 반올림 잔차를 가중치 최대 항목이 흡수하므로 이 값은 항상 정확히 100.00% 다. *@
+                <th class="num mono">@DrawOdds.Sum(Model.Rows).ToString("F2")%</th>
+            </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    @if (!string.IsNullOrEmpty(Model.SoldOutNotice))
+    {
+        <p class="hint">@Model.SoldOutNotice</p>
+    }
+
+    @if (Model.Version is not null)
+    {
+        <p class="hint mono">
+            확률표 v@Model.Version.Version · @KoreaTime.Format(Model.Version.ActivatedAt) 적용 ·
+            @Model.Version.SnapshotHash[..16]
+        </p>
+    }
+    <p class="hint">이 표는 운영툴의 확률 설정에서 자동으로 생성됩니다.</p>
+</main>
+</body>
+</html>
