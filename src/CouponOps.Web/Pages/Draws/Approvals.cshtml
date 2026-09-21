@@ -80,13 +80,28 @@
                     <label for="note-@row.Id">의견 <span class="hint">승인·반려 기록에 남습니다</span></label>
                     <input id="note-@row.Id" name="Note" maxlength="500" />
                 </div>
-                <button class="primary" type="submit" asp-page-handler="Approve"
-                        onclick="return confirm('승인하면 새 확률표가 즉시 활성화됩니다. 계속할까요?');">승인</button>
-                <button type="submit" asp-page-handler="Reject">반려</button>
-                <button class="danger" type="submit" asp-page-handler="Cancel">요청 철회</button>
+                @if (row.RequestedByLoginId == Model.ActorLoginId)
+                {
+                    @* 요청자에게는 철회만 보인다. 버튼을 숨기는 것이 방어는 아니고,
+                       서버의 CanBeDecidedBy / TryCancel 이 실제 방어다. *@
+                    <button class="danger" type="submit" asp-page-handler="Cancel">요청 철회</button>
+                }
+                else
+                {
+                    <button class="primary" type="submit" asp-page-handler="Approve"
+                            onclick="return confirm('승인하면 새 확률표가 즉시 활성화됩니다. 계속할까요?');">승인</button>
+                    <button type="submit" asp-page-handler="Reject">반려</button>
+                }
             </form>
             <p class="hint">
-                본인이 올린 요청은 승인·반려할 수 없습니다(철회만 가능). 다른 편집자가 결정해야 합니다.
+                @if (row.RequestedByLoginId == Model.ActorLoginId)
+                {
+                    <text>본인이 올린 요청입니다. 승인·반려는 다른 편집자가 해야 합니다.</text>
+                }
+                else
+                {
+                    <text>@row.RequestedByLoginId 님이 올린 요청입니다. 철회는 요청자만 할 수 있습니다.</text>
+                }
             </p>
         }
     </div>

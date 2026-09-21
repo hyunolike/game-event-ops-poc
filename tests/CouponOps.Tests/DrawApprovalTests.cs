@@ -198,6 +198,61 @@ public sealed class DrawApprovalTests(CouponOpsFixture fx)
             .Status.Should().Be(ApprovalStatus.Rejected);
     }
 
+    [Fact(DisplayName = "두 승인자가 동시에 눌러도 한 번만 적용된다")]
+    public async Task Concurrent_decisions_apply_exactly_once()
+    {
+        var ev = await fx.CreateActiveDrawAsync();
+
+        var maker = NewClient();
+        await maker.LoginAsync("admin");
+        await maker.PostFormAsync(
+            $"/Draws/Weights?id={ev.Id}", $"/Draws/Weights?id={ev.Id}&handler=Request",
+            WeightForm([50, 45, 200, 750], "1등 체감 개선"));
+
+        var approvalId = await PendingIdAsync(ev.Id);
+
+        // 같은 요청을 admin2 가 두 번 동시에 누른다(더블클릭·새로고침 후 재전송).
+        // RowVersion 이 동시성 토큰이므로 한 쪽은 반드시 진다 —
+        // 진 쪽이 500 으로 터지면 운영자는 무슨 일이 일어났는지 알 수 없다.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ready = new CountdownEvent(2);
+
+        var tasks = Enumerable.Range(0, 2).Select(_ => Task.Run(async () =>
+        {
+            var checker = NewClient();
+            await checker.LoginAsync("admin2");
+
+            ready.Signal();
+            await gate.Task;
+
+            return await checker.PostFormAsync(
+                "/Draws/Approvals", "/Draws/Approvals?handler=Approve", new()
+                {
+                    ["ApprovalId"] = approvalId.ToString(),
+                    ["Note"] = "지급 규모 확인함",
+                });
+        })).ToArray();
+
+        ready.Wait(TimeSpan.FromSeconds(60));
+        gate.SetResult();
+
+        var responses = await Task.WhenAll(tasks);
+
+        responses.Should().OnlyContain(
+            r => r.StatusCode == HttpStatusCode.Redirect || r.StatusCode == HttpStatusCode.OK,
+            "경합에서 진 쪽도 500 이 아니라 '먼저 결정됐다' 는 답을 받아야 한다");
+
+        var state = await StateAsync(ev.Id);
+        state.Slot0Weight.Should().Be(50);
+        state.VersionCount.Should().Be(2, "확률표 버전이 두 번 올라가면 안 된다");
+        state.Pending.Should().Be(0);
+
+        using var scope = fx.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.DrawApprovals.AsNoTracking().SingleAsync(a => a.Id == approvalId))
+            .Status.Should().Be(ApprovalStatus.Approved);
+    }
+
     [Fact(DisplayName = "읽기전용 계정은 대기 목록은 보지만 결정할 수 없다")]
     public async Task Viewer_can_see_but_not_decide()
     {

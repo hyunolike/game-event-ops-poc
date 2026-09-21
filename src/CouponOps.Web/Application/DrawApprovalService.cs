@@ -21,6 +21,8 @@ public enum ApprovalOutcome
     /// <summary>요청 이후 확률표가 바뀌었다. 승인자가 본 것과 다른 표 위에 얹게 된다.</summary>
     Stale = 6,
     NotFound = 7,
+    /// <summary>다른 승인자가 한발 먼저 결정했다. 오류가 아니라 정상 경합의 결과다.</summary>
+    AlreadyDecided = 8,
 }
 
 public sealed record ApprovalResult(ApprovalOutcome Outcome, long? ApprovalId = null);
@@ -125,7 +127,8 @@ public sealed class DrawApprovalService(
         //   (a) 승인됐는데 미적용  — 화면에서 확률표 버전이 그대로인 것이 보이고, 재요청으로 회복된다.
         //   (b) 적용됐는데 승인 기록 없음 — 누가 통과시켰는지 모르는 확률 변경이 남는다. 회복 불가.
         // 비대칭이므로 승인 기록이 먼저다.
-        await db.SaveChangesAsync(ct);
+        if (!await TryCommitDecisionAsync(approval, ct))
+            return new ApprovalResult(ApprovalOutcome.AlreadyDecided, approval.Id);
 
         await admin.ChangeWeightsAsync(approval.DrawEventId, weights,
             $"{approval.RequestReason} (요청 {approval.RequestedByLoginId} · 승인 {actor.LoginId})", ct);
@@ -148,8 +151,9 @@ public sealed class DrawApprovalService(
             after: new { ApprovalId = approval.Id, approval.RequestedByLoginId, RejectedBy = actor.LoginId },
             note);
 
-        await db.SaveChangesAsync(ct);
-        return new ApprovalResult(ApprovalOutcome.Rejected, approval.Id);
+        return await TryCommitDecisionAsync(approval, ct)
+            ? new ApprovalResult(ApprovalOutcome.Rejected, approval.Id)
+            : new ApprovalResult(ApprovalOutcome.AlreadyDecided, approval.Id);
     }
 
     /// <summary>요청자가 스스로 거둬들인다.</summary>
@@ -165,8 +169,32 @@ public sealed class DrawApprovalService(
             approval.DrawEventId.ToString(),
             before: null, after: new { ApprovalId = approval.Id, CancelledBy = actor.LoginId });
 
-        await db.SaveChangesAsync(ct);
-        return new ApprovalResult(ApprovalOutcome.Cancelled, approval.Id);
+        return await TryCommitDecisionAsync(approval, ct)
+            ? new ApprovalResult(ApprovalOutcome.Cancelled, approval.Id)
+            : new ApprovalResult(ApprovalOutcome.AlreadyDecided, approval.Id);
+    }
+
+    /// <summary>
+    /// 결정과 감사 기록을 함께 커밋한다. 다른 승인자가 한발 먼저 결정했으면 false 를 돌려준다.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DrawApproval.RowVersion"/> 이 동시성 토큰이라, 둘이 같은 요청을 동시에 눌러도
+    /// 한 쪽만 커밋된다. 진 쪽을 예외로 흘려보내면 운영자는 500 화면을 보게 되는데,
+    /// 실제로 일어난 일은 "동료가 먼저 눌렀다" 일 뿐이다. 그 사실을 그대로 알려준다.
+    /// </remarks>
+    private async Task<bool> TryCommitDecisionAsync(DrawApproval approval, CancellationToken ct)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // 더럽혀진 엔티티가 추적된 채 남으면 이후 저장이 같은 예외를 되풀이한다.
+            db.Entry(approval).State = EntityState.Detached;
+            return false;
+        }
     }
 
     public async Task<IReadOnlyList<PendingApproval>> ListPendingAsync(long? drawEventId, CancellationToken ct)

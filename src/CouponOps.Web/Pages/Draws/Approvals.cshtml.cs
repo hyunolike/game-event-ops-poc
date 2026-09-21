@@ -22,28 +22,37 @@ public sealed class ApprovalsModel(DrawApprovalService approvals, ICurrentActor 
     public string? Error { get; private set; }
     public bool CanEdit => actor.CanEdit;
 
+    /// <summary>철회 버튼을 요청자에게만 보이기 위해 쓴다. 실제 방어는 서버의 TryCancel 이 한다.</summary>
+    public string ActorLoginId => actor.LoginId;
+
     public async Task OnGetAsync(CancellationToken ct) => await LoadAsync(ct);
+
+    private const string DecideDenied =
+        "본인이 올린 요청은 본인이 결정할 수 없습니다. 이미 결정된 요청일 수도 있습니다.";
+
+    private const string CancelDenied =
+        "요청을 올린 본인만 철회할 수 있습니다. 이미 결정된 요청일 수도 있습니다.";
 
     public async Task<IActionResult> OnPostApproveAsync(CancellationToken ct)
     {
         if (!actor.CanEdit) return Forbid();
-        return await DecideAsync(() => approvals.ApproveAsync(ApprovalId, Note?.Trim(), ct), ct);
+        return await DecideAsync(() => approvals.ApproveAsync(ApprovalId, Note?.Trim(), ct), DecideDenied, ct);
     }
 
     public async Task<IActionResult> OnPostRejectAsync(CancellationToken ct)
     {
         if (!actor.CanEdit) return Forbid();
-        return await DecideAsync(() => approvals.RejectAsync(ApprovalId, Note?.Trim(), ct), ct);
+        return await DecideAsync(() => approvals.RejectAsync(ApprovalId, Note?.Trim(), ct), DecideDenied, ct);
     }
 
     public async Task<IActionResult> OnPostCancelAsync(CancellationToken ct)
     {
         if (!actor.CanEdit) return Forbid();
-        return await DecideAsync(() => approvals.CancelAsync(ApprovalId, ct), ct);
+        return await DecideAsync(() => approvals.CancelAsync(ApprovalId, ct), CancelDenied, ct);
     }
 
     private async Task<IActionResult> DecideAsync(
-        Func<Task<ApprovalResult>> decide, CancellationToken ct)
+        Func<Task<ApprovalResult>> decide, string deniedMessage, CancellationToken ct)
     {
         var result = await decide();
 
@@ -60,7 +69,11 @@ public sealed class ApprovalsModel(DrawApprovalService approvals, ICurrentActor 
                 break;
             case ApprovalOutcome.NotAllowed:
                 await LoadAsync(ct);
-                Error = "본인이 올린 요청은 본인이 결정할 수 없습니다. 이미 결정된 요청일 수도 있습니다.";
+                Error = deniedMessage;
+                return Page();
+            case ApprovalOutcome.AlreadyDecided:
+                await LoadAsync(ct);
+                Error = "다른 편집자가 한발 먼저 결정했습니다. 목록을 새로 불러왔습니다.";
                 return Page();
             case ApprovalOutcome.Stale:
                 await LoadAsync(ct);
